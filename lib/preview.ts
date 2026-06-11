@@ -25,13 +25,15 @@ const BROWSER = 'google-chrome-stable';
 export async function startLivePreview(
   sessionId: string,
   targetUrl: string,
+  apiKey?: string,
 ): Promise<{ streamUrl: string }> {
   const safeUrl = assertSafeHttpUrl(targetUrl);
+  const opts = apiKey ? { apiKey } : {};
 
   const existing = registry.get(sessionId);
   if (existing) {
     try {
-      const desktop = await DesktopSandbox.connect(existing.id);
+      const desktop = await DesktopSandbox.connect(existing.id, opts);
       await desktop.setTimeout(TIMEOUT_MS);
       await openInBrowser(desktop, safeUrl);
       return { streamUrl: streamUrl(desktop, existing.authKey) };
@@ -41,7 +43,7 @@ export async function startLivePreview(
     }
   }
 
-  const desktop = await DesktopSandbox.create({ timeoutMs: TIMEOUT_MS });
+  const desktop = await DesktopSandbox.create({ ...opts, timeoutMs: TIMEOUT_MS });
   // requireAuth gates the stream behind an auto-generated key so the (per-session,
   // time-limited) stream URL isn't usable by anyone who merely guesses the host.
   await desktop.stream.start({ requireAuth: true });
@@ -126,12 +128,12 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-export async function killPreviewSandbox(sessionId: string): Promise<void> {
+export async function killPreviewSandbox(sessionId: string, apiKey?: string): Promise<void> {
   const entry = registry.get(sessionId);
   if (!entry) return;
   registry.delete(sessionId);
   try {
-    await DesktopSandbox.kill(entry.id);
+    await DesktopSandbox.kill(entry.id, apiKey ? { apiKey } : undefined);
   } catch {
     // Already dead or unreachable — that's fine.
   }

@@ -24,9 +24,11 @@ interface Props {
   onExample: (repo: string, task: string) => void;
   // Sends a message on the user's behalf — used by the approval card's option buttons.
   onRespond: (text: string) => void;
+  // True when neither the server nor the visitor has the keys needed to run — nudge to BYOK.
+  needsKeys?: boolean;
 }
 
-export default function AgentLog({ messages, isStreaming, error, onExample, onRespond }: Props) {
+export default function AgentLog({ messages, isStreaming, error, onExample, onRespond, needsKeys }: Props) {
   if (messages.length === 0 && !error) {
     return (
       <div className="empty dotgrid">
@@ -35,6 +37,12 @@ export default function AgentLog({ messages, isStreaming, error, onExample, onRe
           <div className="empty-badge"><span className="dot" />SANDBOX READY · 80MS COLD START</div>
           <h1>AUTONOMOUS<br /><ScrambleText className="scramble" text="CODING AGENT" /></h1>
           <p>Paste a repository and describe a task. The agent clones it into a secure cloud sandbox, plans, runs commands, edits files, and streams every step back to you.</p>
+          {needsKeys && (
+            <div className="byok-note">
+              <Icon name="key" size={13} />
+              <span>Add your own <b>E2B</b> + an <b>LLM</b> key in <b>Keys</b> (top-right) to run. They stay in your browser.</span>
+            </div>
+          )}
           <div className="chip-row">
             {EXAMPLES.map((ex, i) => (
               <button key={i} className="chip" onClick={() => onExample(ex.repo, ex.task)}>

@@ -32,7 +32,14 @@ describe('POST /api/preview', () => {
     const res = await POST(req('POST', { sessionId: 's1', url: 'https://8000-x.e2b.app/' }));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ streamUrl: 'https://6080-x.e2b.app/vnc.html' });
-    expect(startLivePreview).toHaveBeenCalledWith('s1', 'https://8000-x.e2b.app/');
+    expect(startLivePreview).toHaveBeenCalledWith('s1', 'https://8000-x.e2b.app/', undefined);
+  });
+
+  it('forwards the BYOK e2bKey to startLivePreview', async () => {
+    vi.mocked(startLivePreview).mockResolvedValue({ streamUrl: 'https://6080-x.e2b.app/vnc.html' });
+    const res = await POST(req('POST', { sessionId: 's1', url: 'https://8000-x.e2b.app/', e2bKey: 'e2b_byok' }));
+    expect(res.status).toBe(200);
+    expect(startLivePreview).toHaveBeenCalledWith('s1', 'https://8000-x.e2b.app/', 'e2b_byok');
   });
 
   it('rejects a missing url with 400 and never touches the sandbox', async () => {
@@ -62,8 +69,15 @@ describe('DELETE /api/preview', () => {
     const res = await DELETE(req('DELETE', { sessionId: 's1' }));
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true });
-    expect(killSandbox).toHaveBeenCalledWith('s1');
-    expect(killPreviewSandbox).toHaveBeenCalledWith('s1');
+    expect(killSandbox).toHaveBeenCalledWith('s1', undefined);
+    expect(killPreviewSandbox).toHaveBeenCalledWith('s1', undefined);
+  });
+
+  it('forwards the BYOK e2bKey when tearing down', async () => {
+    const res = await DELETE(req('DELETE', { sessionId: 's1', e2bKey: 'e2b_byok' }));
+    expect(res.status).toBe(200);
+    expect(killSandbox).toHaveBeenCalledWith('s1', 'e2b_byok');
+    expect(killPreviewSandbox).toHaveBeenCalledWith('s1', 'e2b_byok');
   });
 
   it('rejects a missing sessionId with 400 and kills nothing', async () => {

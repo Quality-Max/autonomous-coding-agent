@@ -8,28 +8,32 @@ const registry = new Map<string, string>();
 // so the clock resets as long as the agent is actively calling tools.
 const TIMEOUT_MS = 10 * 60 * 1000;
 
-export async function getOrCreateSandbox(sessionId: string): Promise<Sandbox> {
+// `apiKey` is the visitor's BYOK E2B key (or undefined to fall back to the E2B_API_KEY
+// env var). It's passed to both connect and create so reconnects use the same account
+// that created the sandbox.
+export async function getOrCreateSandbox(sessionId: string, apiKey?: string): Promise<Sandbox> {
+  const opts = apiKey ? { apiKey } : {};
   const existingId = registry.get(sessionId);
   if (existingId) {
     try {
-      const sandbox = await Sandbox.connect(existingId);
+      const sandbox = await Sandbox.connect(existingId, opts);
       await sandbox.setTimeout(TIMEOUT_MS);
       return sandbox;
     } catch {
       registry.delete(sessionId);
     }
   }
-  const sandbox = await Sandbox.create({ timeoutMs: TIMEOUT_MS });
+  const sandbox = await Sandbox.create({ ...opts, timeoutMs: TIMEOUT_MS });
   registry.set(sessionId, sandbox.sandboxId);
   return sandbox;
 }
 
-export async function killSandbox(sessionId: string): Promise<void> {
+export async function killSandbox(sessionId: string, apiKey?: string): Promise<void> {
   const sandboxId = registry.get(sessionId);
   if (!sandboxId) return;
   registry.delete(sessionId);
   try {
-    await Sandbox.kill(sandboxId);
+    await Sandbox.kill(sandboxId, apiKey ? { apiKey } : undefined);
   } catch {
     // Already dead or unreachable — that's fine
   }

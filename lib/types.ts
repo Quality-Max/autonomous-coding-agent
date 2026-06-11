@@ -3,6 +3,17 @@ export type { UIMessage };
 
 export type ProviderName = 'anthropic' | 'openai' | 'google';
 
+// Bring-your-own-key: keys supplied per-request by the client (entered in the UI and
+// stored in the visitor's browser). They take precedence over server env vars, letting a
+// public deployment run on the visitor's own credentials. Never persisted or logged
+// server-side.
+export interface ApiKeys {
+  e2b?: string;
+  anthropic?: string;
+  openai?: string;
+  google?: string;
+}
+
 export type PlanStepStatus = 'pending' | 'in_progress' | 'done';
 
 export interface PlanStep {
@@ -35,4 +46,5 @@ export interface AgentRequest {
   provider?: ProviderName;
   model?: string;
   mcpServers?: MCPServerConfig[];
+  keys?: ApiKeys;
 }

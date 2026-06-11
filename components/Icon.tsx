@@ -20,6 +20,7 @@ const ICONS: Record<string, string> = {
   send: 'M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z',
   refresh: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5',
   box: 'M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8',
+  key: 'M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 0 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 0 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6 6 0 1 0-4-4zM16.5 7.5h.01',
 };
 
 interface IconProps {

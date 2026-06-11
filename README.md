@@ -4,7 +4,17 @@ An autonomous coding agent that clones a repository, plans a task, and implement
 
 Think Codex, Jules, or Devin: give it a repo URL and a task description, watch it work.
 
+## Demo
+
+<!-- TODO: add a recording of a real run (clone → plan → run commands → edit → preview).
+     Drop a GIF or MP4 at docs/demo.gif and reference it here, e.g.:
+     ![Autonomous Coding Agent demo](docs/demo.gif) -->
+
+_A recorded walkthrough is coming. In the meantime, run it yourself in under a minute with the [live demo](#live-demo-bring-your-own-key) (bring your own keys) or the [quick start](#quick-start)._
+
 ## Features
+
+- **Bring your own key (BYOK)** — enter your own E2B + LLM keys in the UI (stored only in your browser); a public deployment runs entirely on the visitor's own credentials, with no server-side secrets
 
 - **Autonomous coding** — clones repos, installs packages, runs commands, reads and writes files
 - **Task planning** — the agent records a step-by-step plan up front (`update_plan`) and keeps it live as it works; the Plan tab shows each step's status with a progress bar
@@ -119,13 +129,32 @@ The suite is deterministic and needs no credentials:
 - **Route contract** — `POST`/`DELETE /api/preview` behaviour (success, 400 validation, 502 boot/validation failure, full teardown) with the sandbox layer mocked.
 - **Live sandbox smoke test** — an opt-in end-to-end (`lib/preview.e2e.test.ts`) that boots a real desktop sandbox, asserts the noVNC URL, and tears it down. It runs only when `E2B_API_KEY` is set, so CI stays deterministic.
 
+## Live demo (bring your own key)
+
+This app is **BYOK**: every API call can carry the visitor's own keys, supplied through the
+**Keys** panel in the header (E2B + at least one LLM provider). They're stored only in the
+visitor's browser (`localStorage`) and sent with each request — never persisted or logged on
+the server. The server falls back to its own env vars when present.
+
+That makes it safe to host a public demo with **no server-side secrets at all**: deploy it
+with an empty environment, and each visitor runs the agent on their own E2B + LLM credentials
+(so they pay for their own sandbox + token usage, and there's no shared key to drain or abuse).
+When the server has no keys configured, the empty state nudges visitors to add their own.
+
+> Why not a fully open, keys-included demo? Each run spins up a real cloud sandbox (arbitrary
+> code execution) and makes paid LLM calls — an open instance with shared keys is a cost and
+> abuse magnet. BYOK keeps the demo genuinely interactive without that exposure.
+
 ## Deploy to Vercel
 
 ```bash
 npx vercel
 ```
 
-Set the environment variables above in the Vercel project settings. The app has no database — all state is in-memory per request or client-side.
+For a **public BYOK demo**, you can deploy with an empty environment — visitors supply their
+own keys in the UI. To run on your own credentials instead, set the environment variables
+above in the Vercel project settings. The app has no database — all state is in-memory per
+request or client-side.
 
 ## Tech stack
 

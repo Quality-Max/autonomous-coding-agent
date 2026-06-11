@@ -9,6 +9,8 @@ export const maxDuration = 60;
 const CreateSchema = z.object({
   sessionId: z.string().min(1).max(128),
   url: z.string().url(),
+  // BYOK: the visitor's E2B key for spinning up the desktop-preview sandbox.
+  e2bKey: z.string().max(512).optional(),
 });
 
 // POST — user clicked the Desktop preview: spin up (or reuse) the session's desktop
@@ -20,7 +22,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
   try {
-    const { streamUrl } = await startLivePreview(parsed.data.sessionId, parsed.data.url);
+    const { streamUrl } = await startLivePreview(parsed.data.sessionId, parsed.data.url, parsed.data.e2bKey);
     return NextResponse.json({ streamUrl });
   } catch (err) {
     return NextResponse.json(
@@ -32,6 +34,7 @@ export async function POST(req: NextRequest) {
 
 const TeardownSchema = z.object({
   sessionId: z.string().min(1).max(128),
+  e2bKey: z.string().max(512).optional(),
 });
 
 // DELETE — tear down every sandbox for the session (coding + desktop preview). Called when
@@ -42,8 +45,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request' }, { status: 400 });
   }
   await Promise.allSettled([
-    killSandbox(parsed.data.sessionId),
-    killPreviewSandbox(parsed.data.sessionId),
+    killSandbox(parsed.data.sessionId, parsed.data.e2bKey),
+    killPreviewSandbox(parsed.data.sessionId, parsed.data.e2bKey),
   ]);
   return NextResponse.json({ ok: true });
 }

@@ -8,7 +8,7 @@ import Header from '@/components/Header';
 import AgentLog from '@/components/AgentLog';
 import Composer from '@/components/Composer';
 import Workspace from '@/components/Workspace';
-import type { ProviderName, TouchedFile, MCPServerConfig, PlanStep } from '@/lib/types';
+import type { ProviderName, TouchedFile, MCPServerConfig, PlanStep, ApiKeys } from '@/lib/types';
 import type { MCPServerMeta } from '@/lib/mcp';
 
 function newSessionId() { return crypto.randomUUID(); }
@@ -118,6 +118,9 @@ export default function Page() {
   // Servers configured via env vars (e.g. LINEAR_API_KEY) — read-only, credential lives
   // server-side. Surfaced so the user can see/inspect them but not edit or disconnect them.
   const [envServers, setEnvServers] = useState<MCPServerMeta[]>([]);
+  // BYOK: the visitor's own API keys, entered in the UI. Empty on the server and on first
+  // render to avoid hydration mismatch; loaded from localStorage in a client-only effect.
+  const [apiKeys, setApiKeys] = useState<ApiKeys>({});
   const logRef = useRef<HTMLDivElement>(null);
 
   // Refs for per-call body — avoids stale closure and JSON.stringify getter issues.
@@ -125,10 +128,12 @@ export default function Page() {
   const providerRef = useRef(provider);
   const modelRef = useRef(model);
   const mcpServersRef = useRef(mcpServers);
+  const apiKeysRef = useRef(apiKeys);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { providerRef.current = provider; }, [provider]);
   useEffect(() => { modelRef.current = model; }, [model]);
   useEffect(() => { mcpServersRef.current = mcpServers; }, [mcpServers]);
+  useEffect(() => { apiKeysRef.current = apiKeys; }, [apiKeys]);
 
   useEffect(() => {
     try {
@@ -151,6 +156,32 @@ export default function Page() {
       .then(d => { if (Array.isArray(d?.servers)) setEnvServers(d.servers); })
       .catch(() => {});
   }, []);
+
+  // Load BYOK keys from localStorage (client-only). They never leave the browser except
+  // as request bodies to this app's own API routes, which use them per-request.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('apiKeys') ?? '{}');
+      if (saved && typeof saved === 'object') setApiKeys(saved as ApiKeys);
+    } catch {}
+  }, []);
+
+  // Does THIS deployment run on its own server keys? If not (public BYOK deploy), and the
+  // visitor hasn't supplied keys, the empty state nudges them to add their own.
+  const [serverReady, setServerReady] = useState(true);
+  useEffect(() => {
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(d => setServerReady(Boolean(d?.serverReady)))
+      .catch(() => {});
+  }, []);
+  const keysReady = Boolean(apiKeys.e2b) && Boolean(apiKeys.anthropic || apiKeys.openai || apiKeys.google);
+  const needsKeys = !serverReady && !keysReady;
+
+  function handleKeysChange(keys: ApiKeys) {
+    setApiKeys(keys);
+    try { localStorage.setItem('apiKeys', JSON.stringify(keys)); } catch {}
+  }
 
   function handleMCPChange(servers: MCPServerConfig[]) {
     setMCPServers(servers);
@@ -190,7 +221,7 @@ export default function Page() {
       const res = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionIdRef.current, url: previewUrl }),
+        body: JSON.stringify({ sessionId: sessionIdRef.current, url: previewUrl, e2bKey: apiKeysRef.current.e2b }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.streamUrl) setManualVncUrl(data.streamUrl as string);
@@ -204,7 +235,7 @@ export default function Page() {
     void fetch('/api/preview', {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ sessionId: id }),
+      body: JSON.stringify({ sessionId: id, e2bKey: apiKeysRef.current.e2b }),
       keepalive: true,
     }).catch(() => {});
   }
@@ -225,7 +256,7 @@ export default function Page() {
     if (isStreaming) return;
     sendMessage(
       { text },
-      { body: { sessionId: sessionIdRef.current, provider: providerRef.current, model: modelRef.current, mcpServers: mcpServersRef.current } }
+      { body: { sessionId: sessionIdRef.current, provider: providerRef.current, model: modelRef.current, mcpServers: mcpServersRef.current, keys: apiKeysRef.current } }
     );
   }
 
@@ -266,6 +297,8 @@ export default function Page() {
         mcpServers={mcpServers}
         envServers={envServers}
         onMCPChange={handleMCPChange}
+        apiKeys={apiKeys}
+        onKeysChange={handleKeysChange}
       />
       <div className="main">
         <div className="col-log">
@@ -284,6 +317,7 @@ export default function Page() {
               error={error ?? undefined}
               onExample={handleExample}
               onRespond={sendWithBody}
+              needsKeys={needsKeys}
             />
           </div>
           <Composer

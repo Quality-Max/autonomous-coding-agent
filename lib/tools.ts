@@ -4,9 +4,9 @@ import type { Sandbox } from 'e2b';
 import { runCommand, readFile, writeFile, listFiles, getPublicUrl } from './sandbox';
 import { fastApply } from './fastApply';
 import { resolveFastModel } from './router';
-import type { ProviderName } from './types';
+import type { ProviderName, ApiKeys } from './types';
 
-export function makeTools(sandbox: Sandbox, provider?: ProviderName) {
+export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiKeys) {
   return {
     update_plan: tool({
       description:
@@ -140,7 +140,7 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName) {
         let updated: string;
         let model: string;
         try {
-          const fastModel = resolveFastModel(provider);
+          const fastModel = resolveFastModel(provider, keys);
           ({ updated, model } = await fastApply(original, input.edit, fastModel));
         } catch (err) {
           return { ok: false, error: err instanceof Error ? err.message : String(err) };

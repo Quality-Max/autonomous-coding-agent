@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Icon from './Icon';
 import PyramidLogo from './PyramidLogo';
-import type { ProviderName, MCPServerConfig } from '@/lib/types';
+import type { ProviderName, MCPServerConfig, ApiKeys } from '@/lib/types';
 import { isSafeSSEUrl, type MCPToolInfo, type MCPServerMeta } from '@/lib/mcp';
 
 // Per-server tool fetch state: a tool list once loaded, or a status sentinel.
@@ -394,6 +394,76 @@ function McpMenu({ servers, envServers, onServersChange }: {
   );
 }
 
+const KEY_FIELDS: { id: keyof ApiKeys; label: string; placeholder: string; help: string }[] = [
+  { id: 'e2b', label: 'E2B', placeholder: 'e2b_…', help: 'required · e2b.dev' },
+  { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…', help: 'Claude' },
+  { id: 'openai', label: 'OpenAI', placeholder: 'sk-…', help: 'GPT' },
+  { id: 'google', label: 'Google', placeholder: 'AIza…', help: 'Gemini' },
+];
+
+// Bring-your-own-key panel. Keys live only in the visitor's browser (localStorage) and are
+// sent with each request so a public deployment runs on the visitor's own accounts.
+function KeysMenu({ apiKeys, onKeysChange }: { apiKeys: ApiKeys; onKeysChange: (k: ApiKeys) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useClickOutside(ref, () => setOpen(false));
+  const [draft, setDraft] = useState<ApiKeys>(apiKeys);
+  useEffect(() => { if (open) setDraft(apiKeys); }, [open, apiKeys]);
+
+  const count = KEY_FIELDS.filter(f => (apiKeys[f.id] ?? '').trim()).length;
+
+  function save() {
+    const cleaned: ApiKeys = {};
+    for (const f of KEY_FIELDS) {
+      const v = (draft[f.id] ?? '').trim();
+      if (v) cleaned[f.id] = v;
+    }
+    onKeysChange(cleaned);
+    setOpen(false);
+  }
+  function clearAll() { setDraft({}); onKeysChange({}); setOpen(false); }
+
+  return (
+    <div style={{ position: 'relative' }} ref={ref}>
+      <button className={`pill ${open ? 'active' : ''}`} onClick={() => setOpen(o => !o)} title="API keys — stored only in your browser">
+        <Icon name="key" size={13} />
+        <span>Keys</span>
+        <span style={{ color: count > 0 ? 'var(--accent-bright)' : 'var(--fg-faint)', fontSize: 11 }}>{count}</span>
+      </button>
+
+      {open && (
+        <div className="menu" style={{ minWidth: 300, padding: 10 }}>
+          <div className="menu-label" style={{ padding: '0 0 4px' }}>Your API keys</div>
+          <p style={{ fontSize: 11, lineHeight: 1.5, color: 'var(--fg-faint)', margin: '0 0 10px' }}>
+            Stored only in this browser and sent with your requests to run on your own
+            accounts. Never saved or logged on the server.
+          </p>
+          {KEY_FIELDS.map(f => (
+            <div key={f.id} style={{ marginBottom: 8 }}>
+              <label style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase', color: 'var(--fg-faint)', marginBottom: 3 }}>
+                <span>{f.label}</span><span style={{ textTransform: 'none', letterSpacing: 0 }}>{f.help}</span>
+              </label>
+              <input
+                className="mcp-input"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={f.placeholder}
+                value={draft[f.id] ?? ''}
+                onChange={e => setDraft(d => ({ ...d, [f.id]: e.target.value }))}
+              />
+            </div>
+          ))}
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button className="btn" style={{ height: 32, flex: 1 }} onClick={save}>Save</button>
+            <button className="btn ghost" style={{ height: 32 }} onClick={clearAll} disabled={count === 0}>Clear</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface HeaderProps {
   provider: ProviderName;
   model: string;
@@ -403,9 +473,11 @@ interface HeaderProps {
   mcpServers: MCPServerConfig[];
   envServers: MCPServerMeta[];
   onMCPChange: (servers: MCPServerConfig[]) => void;
+  apiKeys: ApiKeys;
+  onKeysChange: (keys: ApiKeys) => void;
 }
 
-export default function Header({ provider, model, onChange, onNew, running, mcpServers, envServers, onMCPChange }: HeaderProps) {
+export default function Header({ provider, model, onChange, onNew, running, mcpServers, envServers, onMCPChange, apiKeys, onKeysChange }: HeaderProps) {
   return (
     <header className="hdr">
       <div className="brand">
@@ -426,6 +498,7 @@ export default function Header({ provider, model, onChange, onNew, running, mcpS
 
       <div className="hdr-spacer" />
 
+      <KeysMenu apiKeys={apiKeys} onKeysChange={onKeysChange} />
       <McpMenu servers={mcpServers} envServers={envServers} onServersChange={onMCPChange} />
       <ProviderPicker provider={provider} model={model} onChange={onChange} />
       <button className="icon-btn" title="New session" onClick={onNew}>

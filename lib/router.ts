@@ -1,12 +1,11 @@
-import { anthropic } from '@ai-sdk/anthropic';
-import { openai } from '@ai-sdk/openai';
-import { google } from '@ai-sdk/google';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { LanguageModel } from 'ai';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { ProviderName } from './types';
+import type { ProviderName, ApiKeys } from './types';
 
 const DEFAULT_MODELS: Record<ProviderName, string> = {
   anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8',
@@ -26,45 +25,54 @@ const CODEX_TOKEN: string | null = (() => {
   }
 })();
 
-function isConfigured(provider: ProviderName): boolean {
-  if (provider === 'anthropic') return Boolean(process.env.ANTHROPIC_API_KEY);
-  if (provider === 'openai') return Boolean(process.env.OPENAI_API_KEY) || Boolean(CODEX_TOKEN);
-  if (provider === 'google') return Boolean(process.env.GOOGLE_GENERATIVE_AI_API_KEY);
-  return false;
+// Per-provider key resolution. BYOK keys (supplied per-request from the UI) win over
+// server env vars, so a public deployment runs on the visitor's own credentials.
+function keyFor(provider: ProviderName, keys?: ApiKeys): string | undefined {
+  switch (provider) {
+    case 'anthropic': return keys?.anthropic || process.env.ANTHROPIC_API_KEY || undefined;
+    case 'openai': return keys?.openai || process.env.OPENAI_API_KEY || CODEX_TOKEN || undefined;
+    case 'google': return keys?.google || process.env.GOOGLE_GENERATIVE_AI_API_KEY || undefined;
+  }
 }
 
-function modelFor(provider: ProviderName, modelId?: string): LanguageModel {
+function isConfigured(provider: ProviderName, keys?: ApiKeys): boolean {
+  return Boolean(keyFor(provider, keys));
+}
+
+function modelFor(provider: ProviderName, modelId: string | undefined, keys?: ApiKeys): LanguageModel {
   const id = modelId ?? DEFAULT_MODELS[provider];
+  const apiKey = keyFor(provider, keys);
   switch (provider) {
     case 'anthropic':
-      return anthropic(id);
-    case 'openai': {
-      if (!process.env.OPENAI_API_KEY && CODEX_TOKEN) return createOpenAI({ apiKey: CODEX_TOKEN })(id);
-      return openai(id);
-    }
+      return createAnthropic({ apiKey })(id);
+    case 'openai':
+      return createOpenAI({ apiKey })(id);
     case 'google':
-      return google(id);
+      return createGoogleGenerativeAI({ apiKey })(id);
   }
 }
 
-export function resolveModel(provider?: ProviderName, modelId?: string): LanguageModel {
-  if (provider && isConfigured(provider)) {
-    return modelFor(provider, modelId);
-  }
-
-  const order = (process.env.ROUTER_ORDER ?? 'anthropic,openai,google')
+function routerOrder(keys?: ApiKeys): ProviderName[] {
+  return (process.env.ROUTER_ORDER ?? 'anthropic,openai,google')
     .split(',')
     .map(s => s.trim() as ProviderName)
-    .filter(isConfigured);
+    .filter(p => isConfigured(p, keys));
+}
 
+export function resolveModel(provider?: ProviderName, modelId?: string, keys?: ApiKeys): LanguageModel {
+  if (provider && isConfigured(provider, keys)) {
+    return modelFor(provider, modelId, keys);
+  }
+
+  const order = routerOrder(keys);
   if (order.length === 0) {
     throw new Error(
-      'No LLM provider configured. Set at least one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY'
+      'No LLM provider configured. Add an Anthropic, OpenAI, or Google API key (via the key panel in the UI or a server env var).'
     );
   }
 
   // Use default model for the fallback provider, not the caller's provider-specific modelId.
-  return modelFor(order[0]);
+  return modelFor(order[0], undefined, keys);
 }
 
 // Fast-model variants — smallest/cheapest tier of each provider, for auxiliary calls
@@ -76,23 +84,20 @@ const FAST_MODELS: Record<ProviderName, string> = {
   google: 'gemini-3.5-flash',
 };
 
-export function resolveFastModel(provider?: ProviderName): LanguageModel {
+export function resolveFastModel(provider?: ProviderName, keys?: ApiKeys): LanguageModel {
   // Prefer the user's selected provider so billing stays consistent.
-  if (provider && isConfigured(provider)) {
-    return modelFor(provider, FAST_MODELS[provider]);
+  if (provider && isConfigured(provider, keys)) {
+    return modelFor(provider, FAST_MODELS[provider], keys);
   }
   // Fallback: first configured provider in ROUTER_ORDER.
-  const order = (process.env.ROUTER_ORDER ?? 'anthropic,openai,google')
-    .split(',')
-    .map(s => s.trim() as ProviderName)
-    .filter(isConfigured);
+  const order = routerOrder(keys);
   if (order.length === 0) {
     throw new Error('No LLM provider available for fast apply');
   }
-  return modelFor(order[0], FAST_MODELS[order[0]]);
+  return modelFor(order[0], FAST_MODELS[order[0]], keys);
 }
 
-export function availableProviders(): ProviderName[] {
+export function availableProviders(keys?: ApiKeys): ProviderName[] {
   const all: ProviderName[] = ['anthropic', 'openai', 'google'];
-  return all.filter(isConfigured);
+  return all.filter(p => isConfigured(p, keys));
 }

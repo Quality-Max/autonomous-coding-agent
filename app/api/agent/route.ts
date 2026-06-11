@@ -54,6 +54,14 @@ const AgentRequestSchema = z.object({
   provider: z.enum(['anthropic', 'openai', 'google']).optional(),
   model: z.string().max(128).optional(),
   mcpServers: z.array(MCPServerSchema).max(10).optional(),
+  // BYOK: the visitor's own keys, supplied per-request from the UI. Used only for this
+  // request and never persisted or logged. A 512-char cap is well above any real key.
+  keys: z.object({
+    e2b: z.string().max(512).optional(),
+    anthropic: z.string().max(512).optional(),
+    openai: z.string().max(512).optional(),
+    google: z.string().max(512).optional(),
+  }).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -61,14 +69,14 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
   }
-  const { messages, sessionId, provider, model: modelId, mcpServers } = parsed.data;
+  const { messages, sessionId, provider, model: modelId, mcpServers, keys } = parsed.data;
   const safeMcpServers = mcpServers ?? [];
 
   let sandbox;
   try {
-    sandbox = await getOrCreateSandbox(sessionId);
+    sandbox = await getOrCreateSandbox(sessionId, keys?.e2b);
   } catch (err) {
-    await killSandbox(sessionId);
+    await killSandbox(sessionId, keys?.e2b);
     throw err;
   }
 
@@ -77,20 +85,20 @@ export async function POST(req: NextRequest) {
   // #1 — The abort signal may have already fired while loadMCPTools was awaiting.
   // Adding a listener to an already-aborted signal does NOT retroactively fire it.
   if (req.signal.aborted) {
-    killSandbox(sessionId);
-    void killPreviewSandbox(sessionId);
+    killSandbox(sessionId, keys?.e2b);
+    void killPreviewSandbox(sessionId, keys?.e2b);
     await cleanupMCP();
     return NextResponse.json({ error: 'Request aborted' }, { status: 499 });
   }
   req.signal.addEventListener('abort', () => {
-    killSandbox(sessionId);
-    void killPreviewSandbox(sessionId);
+    killSandbox(sessionId, keys?.e2b);
+    void killPreviewSandbox(sessionId, keys?.e2b);
     void cleanupMCP();
   });
 
-  const model = resolveModel(provider, modelId);
+  const model = resolveModel(provider, modelId, keys);
   // #3 — Sandbox tools spread last so they always win over same-named MCP tools.
-  const tools = { ...mcpTools, ...makeTools(sandbox, provider) };
+  const tools = { ...mcpTools, ...makeTools(sandbox, provider, keys) };
 
   // #2 — Wrap in try/catch so MCP clients are closed even if streamText throws synchronously.
   try {
