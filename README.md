@@ -6,11 +6,9 @@ Think Codex, Jules, or Devin: give it a repo URL and a task description, watch i
 
 ## Demo
 
-<!-- TODO: add a recording of a real run (clone → plan → run commands → edit → preview).
-     Drop a GIF or MP4 at docs/demo.gif and reference it here, e.g.:
-     ![Autonomous Coding Agent demo](docs/demo.gif) -->
+![Autonomous Coding Agent cloning its own repository, planning, running commands, and describing itself](docs/demo.gif)
 
-_A recorded walkthrough is coming. In the meantime, run it yourself in under a minute with the [live demo](#live-demo-bring-your-own-key) (bring your own keys) or the [quick start](#quick-start)._
+_Pointed at its own repo: it clones the code into a cloud sandbox, lays out a plan, runs commands, reads the source, and streams a description back — live._ [Watch the full-quality MP4](docs/demo.mp4) · try it yourself on the **[live demo](https://autonomous-coding-agent-five.vercel.app)** (bring your own keys).
 
 ## Features
 
@@ -130,6 +128,8 @@ The suite is deterministic and needs no credentials:
 - **Live sandbox smoke test** — an opt-in end-to-end (`lib/preview.e2e.test.ts`) that boots a real desktop sandbox, asserts the noVNC URL, and tears it down. It runs only when `E2B_API_KEY` is set, so CI stays deterministic.
 
 ## Live demo (bring your own key)
+
+**▶ Try it: https://autonomous-coding-agent-five.vercel.app**
 
 This app is **BYOK**: every API call can carry the visitor's own keys, supplied through the
 **Keys** panel in the header (E2B + at least one LLM provider). They're stored only in the
