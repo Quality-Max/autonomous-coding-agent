@@ -89,6 +89,7 @@ function ResultCard({ result, kind, onSend }: { result: VisionResult; kind: 'pri
 export default function RecognizePage() {
   const router = useRouter();
   const [dataUri, setDataUri] = useState<string | null>(null);
+  const [appUrl, setAppUrl] = useState('');
   const [model, setModel] = useState('gemma-4-31b');
   const [baselineModel, setBaselineModel] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -129,6 +130,11 @@ export default function RecognizePage() {
     setBusy(true);
     setErr(null);
     setResp(null);
+    const url = appUrl.trim();
+    const prompt = [
+      instructions.trim() || '',
+      url ? `The app under test is available at: ${url}` : '',
+    ].filter(Boolean).join('\n\n') || undefined;
     try {
       const res = await fetch('/api/vision', {
         method: 'POST',
@@ -137,7 +143,7 @@ export default function RecognizePage() {
           imageBase64: dataUri,
           model,
           baselineModel: baselineModel || undefined,
-          instructions: instructions.trim() || undefined,
+          instructions: prompt,
           keys: cerebrasKeyRef.current ? { cerebras: cerebrasKeyRef.current } : undefined,
         }),
       });
@@ -159,11 +165,12 @@ export default function RecognizePage() {
   // reasoning → agent in one flow.
   function sendToAgent(result: VisionResult) {
     if (!result.testCode) return;
+    const url = appUrl.trim();
     const task =
-      `A multimodal model (${result.model}) looked at a screenshot of the app under test ` +
+      `A multimodal model (${result.model}) looked at ${url ? `the app at ${url}` : 'a screenshot of the app under test'} ` +
       `and generated this Playwright test:\n\n\`\`\`\n${result.testCode}\n\`\`\`\n\n` +
       `In this repository: place the test in the correct tests directory, adapt ` +
-      `imports/selectors/baseURL to match the project, run the relevant tests, and ` +
+      `imports/selectors/baseURL${url ? ` (${url})` : ''} to match the project, run the relevant tests, and ` +
       `summarize the result. Keep the change focused.`;
     try {
       sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
@@ -228,6 +235,17 @@ export default function RecognizePage() {
                     <div>Click, drag, or paste an image</div>
                   </div>
                 )}
+              </div>
+
+              <div className="rec-field">
+                <label>App URL (optional)</label>
+                <input
+                  className="rec-input"
+                  type="url"
+                  value={appUrl}
+                  onChange={e => setAppUrl(e.target.value)}
+                  placeholder="https://your-app.example.com"
+                />
               </div>
 
               <div className="rec-field">
