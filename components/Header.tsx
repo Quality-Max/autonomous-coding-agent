@@ -53,42 +53,65 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
   }, [ref, onClose]);
 }
 
-function ProviderPicker({ provider, model, onChange }: {
+function ProviderPicker({ provider, model, onChange, enabled }: {
   provider: ProviderName; model: string;
+  enabled: Record<ProviderName, boolean>;
   onChange: (p: ProviderName, m: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useClickOutside(ref, () => setOpen(false));
 
+  // If the currently-displayed selection belongs to a provider with no key, flag it on the
+  // pill so the visitor isn't misled — the server would silently fall back to a configured
+  // provider rather than run this model.
+  const selectionEnabled = enabled[provider];
+
   return (
     <div style={{ position: 'relative' }} ref={ref}>
-      <button className={`pill ${open ? 'active' : ''}`} onClick={() => setOpen(o => !o)}>
-        <span className="dot" style={{ background: 'var(--accent)' }} />
+      <button
+        className={`pill ${open ? 'active' : ''}`}
+        onClick={() => setOpen(o => !o)}
+        title={selectionEnabled ? undefined : `${model} has no key — add one in Keys, or the run falls back`}
+        style={selectionEnabled ? undefined : { opacity: 0.55 }}
+      >
+        <span className="dot" style={{ background: selectionEnabled ? 'var(--accent)' : 'var(--fg-faint)' }} />
         <span style={{ color: 'var(--fg)' }}>{model}</span>
         <Icon name="chevron" size={12} style={{ transform: 'rotate(90deg)', opacity: 0.5 }} />
       </button>
       {open && (
         <div className="menu" style={{ minWidth: 264 }}>
-          {PROVIDERS.map(p => (
-            <div key={p.id}>
-              <div className="menu-label">{p.label}</div>
-              {p.models.map(m => {
-                const sel = provider === p.id && model === m.id;
-                return (
-                  <div key={m.id} className={`menu-item ${sel ? 'sel' : ''}`}
-                    onClick={() => { onChange(p.id, m.id); setOpen(false); }}>
-                    <span className="lead" style={{ borderRadius: 5, background: 'var(--bg-3)', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--fg-dim)' }}>
-                      {p.glyph}
-                    </span>
-                    <span className="name">{m.name}</span>
-                    <span className="meta">{m.meta}</span>
-                    <span className="check"><Icon name="check" size={13} strokeWidth={2.4} /></span>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          {PROVIDERS.map(p => {
+            const on = enabled[p.id];
+            return (
+              <div key={p.id}>
+                <div className="menu-label" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>{p.label}</span>
+                  {!on && (
+                    <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 9, color: 'var(--fg-faint)' }}>no key</span>
+                  )}
+                </div>
+                {p.models.map(m => {
+                  const sel = provider === p.id && model === m.id;
+                  return (
+                    <div
+                      key={m.id}
+                      className={`menu-item ${sel ? 'sel' : ''} ${!on ? 'disabled' : ''}`}
+                      onClick={on ? () => { onChange(p.id, m.id); setOpen(false); } : undefined}
+                      title={on ? undefined : 'Add a key in the Keys panel to use this model'}
+                    >
+                      <span className="lead" style={{ borderRadius: 5, background: 'var(--bg-3)', fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: 'var(--fg-dim)' }}>
+                        {p.glyph}
+                      </span>
+                      <span className="name">{m.name}</span>
+                      <span className="meta">{on ? m.meta : 'no key'}</span>
+                      <span className="check"><Icon name="check" size={13} strokeWidth={2.4} /></span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -481,6 +504,7 @@ function KeysMenu({ apiKeys, onKeysChange }: { apiKeys: ApiKeys; onKeysChange: (
 interface HeaderProps {
   provider: ProviderName;
   model: string;
+  enabledProviders: Record<ProviderName, boolean>;
   onChange: (p: ProviderName, m: string) => void;
   onNew: () => void;
   running: boolean;
@@ -491,7 +515,7 @@ interface HeaderProps {
   onKeysChange: (keys: ApiKeys) => void;
 }
 
-export default function Header({ provider, model, onChange, onNew, running, mcpServers, envServers, onMCPChange, apiKeys, onKeysChange }: HeaderProps) {
+export default function Header({ provider, model, enabledProviders, onChange, onNew, running, mcpServers, envServers, onMCPChange, apiKeys, onKeysChange }: HeaderProps) {
   return (
     <header className="hdr">
       <div className="brand">
@@ -517,7 +541,7 @@ export default function Header({ provider, model, onChange, onNew, running, mcpS
       </Link>
       <KeysMenu apiKeys={apiKeys} onKeysChange={onKeysChange} />
       <McpMenu servers={mcpServers} envServers={envServers} onServersChange={onMCPChange} />
-      <ProviderPicker provider={provider} model={model} onChange={onChange} />
+      <ProviderPicker provider={provider} model={model} enabled={enabledProviders} onChange={onChange} />
       <button className="icon-btn" title="New session" onClick={onNew}>
         <Icon name="plus" size={15} />
       </button>

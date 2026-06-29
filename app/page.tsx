@@ -183,12 +183,39 @@ export default function Page() {
   // Does THIS deployment run on its own server keys? If not (public BYOK deploy), and the
   // visitor hasn't supplied keys, the empty state nudges them to add their own.
   const [serverReady, setServerReady] = useState(true);
+  // Which providers the SERVER has an env key for (client uses this + BYOK keys to decide
+  // which models the picker enables). All-false on first render; real values arrive from
+  // /api/config. Starting false matches an unconfigured-by-default public deploy, so the
+  // picker only enables a provider once it has proof of a key.
+  const [serverProviders, setServerProviders] = useState<Record<ProviderName, boolean>>({
+    anthropic: false, openai: false, google: false, cerebras: false,
+  });
   useEffect(() => {
     fetch('/api/config')
       .then(r => r.json())
-      .then(d => setServerReady(Boolean(d?.serverReady)))
+      .then(d => {
+        setServerReady(Boolean(d?.serverReady));
+        const p = d?.providers as Record<ProviderName, boolean> | undefined;
+        if (p && typeof p === 'object') {
+          setServerProviders({
+            anthropic: Boolean(p.anthropic),
+            openai: Boolean(p.openai),
+            google: Boolean(p.google),
+            cerebras: Boolean(p.cerebras),
+          });
+        }
+      })
       .catch(() => {});
   }, []);
+  // A provider is usable when the server has a key for it OR the visitor supplied one
+  // (BYOK). This mirrors resolveModel's isConfigured() check server-side, so a disabled
+  // model here is one the server would silently fall back away from.
+  const enabledProviders: Record<ProviderName, boolean> = {
+    anthropic: serverProviders.anthropic || Boolean(apiKeys.anthropic),
+    openai: serverProviders.openai || Boolean(apiKeys.openai),
+    google: serverProviders.google || Boolean(apiKeys.google),
+    cerebras: serverProviders.cerebras || Boolean(apiKeys.cerebras),
+  };
   // Handoff from the recognition page (/recognize): a generated test arrives as a task in
   // sessionStorage. Pick it up once, prefill the composer, and clear it. The state update
   // is deferred to a microtask so it isn't a synchronous setState in the effect body.
@@ -349,6 +376,7 @@ export default function Page() {
     <div className="app density-regular">
       <Header
         provider={provider} model={model}
+        enabledProviders={enabledProviders}
         onChange={(p, m) => { setProvider(p); setModel(m); }}
         onNew={newSession}
         running={isStreaming}

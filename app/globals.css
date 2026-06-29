@@ -98,6 +98,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .menu-item.sel .check { opacity: 1; }
 .menu-item .lead { width: 18px; height: 18px; display: grid; place-items: center; }
 .menu-item .meta { font-family: var(--mono); font-size: 10px; color: var(--fg-faint); margin-left: auto; }
+.menu-item.disabled { opacity: 0.4; cursor: not-allowed; }
+.menu-item.disabled:hover { background: transparent; color: var(--fg-dim); }
 .menu-sep { height: 1px; background: var(--line-soft); margin: 5px 4px; }
 .menu-item .name { font-family: var(--mono); font-size: 12.5px; }
 .mcp-input { width: 100%; box-sizing: border-box; background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 9px; font-family: var(--mono); font-size: 12px; color: var(--fg); outline: none; transition: border-color .15s; }
