@@ -9,6 +9,7 @@ import type { ApiKeys } from '@/lib/types';
 
 // Key under which the agent page picks up a handoff task on mount (see app/page.tsx).
 const HANDOFF_KEY = 'acaHandoffTask';
+const HANDOFF_MODEL = 'gpt-oss-120b';
 
 interface VisionResult {
   model: string;
@@ -164,7 +165,13 @@ export default function RecognizePage() {
       `In this repository: place the test in the correct tests directory, adapt ` +
       `imports/selectors/baseURL to match the project, run the relevant tests, and ` +
       `summarize the result. Keep the change focused.`;
-    try { sessionStorage.setItem(HANDOFF_KEY, task); } catch {}
+    try {
+      sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
+        task,
+        provider: 'cerebras',
+        model: HANDOFF_MODEL,
+      }));
+    } catch {}
     router.push('/');
   }
 

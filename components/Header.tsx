@@ -137,14 +137,16 @@ function McpMenu({ servers, envServers, onServersChange }: {
 
   useEffect(() => {
     if (!open) {
-      setView('list');
-      setApiKey('');
-      setCustomName('');
-      setCustomUrl('');
-      setCustomAuth('');
-      setAddType('linear');
-      setErr('');
-      setExpanded(null);
+      queueMicrotask(() => {
+        setView('list');
+        setApiKey('');
+        setCustomName('');
+        setCustomUrl('');
+        setCustomAuth('');
+        setAddType('linear');
+        setErr('');
+        setExpanded(null);
+      });
     }
   }, [open]);
 
@@ -417,7 +419,9 @@ function KeysMenu({ apiKeys, onKeysChange }: { apiKeys: ApiKeys; onKeysChange: (
   const ref = useRef<HTMLDivElement>(null);
   useClickOutside(ref, () => setOpen(false));
   const [draft, setDraft] = useState<ApiKeys>(apiKeys);
-  useEffect(() => { if (open) setDraft(apiKeys); }, [open, apiKeys]);
+  useEffect(() => {
+    if (open) queueMicrotask(() => setDraft(apiKeys));
+  }, [open, apiKeys]);
 
   const count = KEY_FIELDS.filter(f => (apiKeys[f.id] ?? '').trim()).length;
 

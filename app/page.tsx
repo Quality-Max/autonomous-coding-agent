@@ -3,7 +3,7 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { UIMessage, DynamicToolUIPart } from 'ai';
+import type { UIMessage } from 'ai';
 import Header from '@/components/Header';
 import AgentLog from '@/components/AgentLog';
 import Composer from '@/components/Composer';
@@ -142,10 +142,11 @@ export default function Page() {
       const bases = JSON.parse(localStorage.getItem('mcpServers') ?? '[]');
       const authMap: Record<string, string> = JSON.parse(sessionStorage.getItem('mcpAuth') ?? '{}');
       if (Array.isArray(bases)) {
-        setMCPServers(bases.map((s: MCPServerConfig) => ({
+        const restored = bases.map((s: MCPServerConfig) => ({
           ...s,
           auth: typeof authMap[s.name] === 'string' ? authMap[s.name] : undefined,
-        })));
+        }));
+        queueMicrotask(() => setMCPServers(restored));
       }
     } catch {}
   }, []);
@@ -162,7 +163,7 @@ export default function Page() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('apiKeys') ?? '{}');
-      if (saved && typeof saved === 'object') setApiKeys(saved as ApiKeys);
+      if (saved && typeof saved === 'object') queueMicrotask(() => setApiKeys(saved as ApiKeys));
     } catch {}
   }, []);
 
@@ -183,8 +184,29 @@ export default function Page() {
     try { handoff = sessionStorage.getItem('acaHandoffTask'); } catch {}
     if (!handoff) return;
     try { sessionStorage.removeItem('acaHandoffTask'); } catch {}
-    const text = handoff;
-    queueMicrotask(() => setTask(text));
+    let payload: { task: string; provider?: ProviderName; model?: string } | null = null;
+    try {
+      const parsed = JSON.parse(handoff) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        const record = parsed as { task?: unknown; provider?: unknown; model?: unknown };
+        const providerValue = record.provider;
+        if (typeof record.task === 'string') {
+          payload = {
+            task: record.task,
+            provider: providerValue === 'anthropic' || providerValue === 'openai' || providerValue === 'google' || providerValue === 'cerebras'
+              ? providerValue
+              : undefined,
+            model: typeof record.model === 'string' ? record.model : undefined,
+          };
+        }
+      }
+    } catch {}
+    const next = payload ?? { task: handoff };
+    queueMicrotask(() => {
+      setTask(next.task);
+      if (next.provider) setProvider(next.provider);
+      if (next.model) setModel(next.model);
+    });
   }, []);
 
   const keysReady = Boolean(apiKeys.e2b) && Boolean(apiKeys.anthropic || apiKeys.openai || apiKeys.google || apiKeys.cerebras);
@@ -199,7 +221,11 @@ export default function Page() {
     setMCPServers(servers);
     // Persist server metadata without credentials.
     localStorage.setItem('mcpServers', JSON.stringify(
-      servers.map(({ auth: _omit, ...rest }) => rest)
+      servers.map((server) => {
+        const { auth, ...rest } = server;
+        void auth;
+        return rest;
+      })
     ));
     // Persist auth tokens in sessionStorage only (cleared on browser close).
     const authMap: Record<string, string> = {};
