@@ -51,7 +51,7 @@ const AgentRequestSchema = z.object({
   // metadata, …) pass through and are validated again by convertToModelMessages. This
   // gives the downstream `as UIMessage[]` cast a real runtime shape guarantee.
   messages: z.array(z.looseObject({ role: z.string() })).min(1),
-  provider: z.enum(['anthropic', 'openai', 'google']).optional(),
+  provider: z.enum(['anthropic', 'openai', 'google', 'cerebras']).optional(),
   model: z.string().max(128).optional(),
   mcpServers: z.array(MCPServerSchema).max(10).optional(),
   // BYOK: the visitor's own keys, supplied per-request from the UI. Used only for this
@@ -61,6 +61,7 @@ const AgentRequestSchema = z.object({
     anthropic: z.string().max(512).optional(),
     openai: z.string().max(512).optional(),
     google: z.string().max(512).optional(),
+    cerebras: z.string().max(512).optional(),
   }).optional(),
 });
 

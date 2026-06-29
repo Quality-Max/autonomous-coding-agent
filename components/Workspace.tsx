@@ -187,10 +187,7 @@ function buildTree(files: TouchedFile[]): TreeEntry[] {
 
 function FilesView({ files }: { files: TouchedFile[] }) {
   const [sel, setSel] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!sel && files.length > 0) setSel(files[0].path);
-  }, [files.length, sel]);
+  const selectedPath = sel ?? files[0]?.path ?? null;
 
   if (files.length === 0) {
     return (
@@ -204,7 +201,7 @@ function FilesView({ files }: { files: TouchedFile[] }) {
   }
 
   const tree = buildTree(files);
-  const selFile = files.find(f => f.path === sel);
+  const selFile = files.find(f => f.path === selectedPath);
 
   return (
     <div className="files-split">
@@ -221,7 +218,7 @@ function FilesView({ files }: { files: TouchedFile[] }) {
             );
           }
           return (
-            <div key={i} className={`tree-row ${indentClass} ${sel === e.fullPath ? 'sel' : ''}`}
+            <div key={i} className={`tree-row ${indentClass} ${selectedPath === e.fullPath ? 'sel' : ''}`}
               onClick={() => setSel(e.fullPath)}>
               <Icon name={e.status === 'A' ? 'file' : 'fileEdit'} size={13} style={{ color: 'var(--fg-faint)' }} />
               <span>{e.name}</span>
@@ -469,7 +466,10 @@ function SandboxStrip({ up, running }: { up: boolean; running: boolean }) {
   const [ram, setRam] = useState(12);
 
   useEffect(() => {
-    if (!up) { setUptime(0); return; }
+    if (!up) {
+      queueMicrotask(() => setUptime(0));
+      return;
+    }
     const id = setInterval(() => setUptime(u => u + 1), 1000);
     return () => clearInterval(id);
   }, [up]);

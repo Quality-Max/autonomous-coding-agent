@@ -1,7 +1,7 @@
 import type { UIMessage } from 'ai';
 export type { UIMessage };
 
-export type ProviderName = 'anthropic' | 'openai' | 'google';
+export type ProviderName = 'anthropic' | 'openai' | 'google' | 'cerebras';
 
 // Bring-your-own-key: keys supplied per-request by the client (entered in the UI and
 // stored in the visitor's browser). They take precedence over server env vars, letting a
@@ -12,6 +12,7 @@ export interface ApiKeys {
   anthropic?: string;
   openai?: string;
   google?: string;
+  cerebras?: string;
 }
 
 export type PlanStepStatus = 'pending' | 'in_progress' | 'done';

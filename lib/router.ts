@@ -11,7 +11,14 @@ const DEFAULT_MODELS: Record<ProviderName, string> = {
   anthropic: process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-8',
   openai: process.env.OPENAI_MODEL ?? 'gpt-5',
   google: process.env.GOOGLE_MODEL ?? 'gemini-3.1-pro-preview',
+  // Cerebras Inference — OpenAI-compatible, runs gpt-oss-120b at ~1000+ tok/s.
+  cerebras: process.env.CEREBRAS_MODEL ?? 'gpt-oss-120b',
 };
+
+// Cerebras serves an OpenAI-compatible API but only the Chat Completions endpoint
+// (no Responses API), so its models must be built with `.chat(id)`, not the default
+// callable which would target /responses.
+const CEREBRAS_BASE_URL = process.env.CEREBRAS_API_BASE ?? 'https://api.cerebras.ai/v1';
 
 // Read once at module load time — avoids repeated synchronous disk reads on every request.
 const CODEX_TOKEN: string | null = (() => {
@@ -32,6 +39,7 @@ function keyFor(provider: ProviderName, keys?: ApiKeys): string | undefined {
     case 'anthropic': return keys?.anthropic || process.env.ANTHROPIC_API_KEY || undefined;
     case 'openai': return keys?.openai || process.env.OPENAI_API_KEY || CODEX_TOKEN || undefined;
     case 'google': return keys?.google || process.env.GOOGLE_GENERATIVE_AI_API_KEY || undefined;
+    case 'cerebras': return keys?.cerebras || process.env.CEREBRAS_API_KEY || undefined;
   }
 }
 
@@ -49,11 +57,14 @@ function modelFor(provider: ProviderName, modelId: string | undefined, keys?: Ap
       return createOpenAI({ apiKey })(id);
     case 'google':
       return createGoogleGenerativeAI({ apiKey })(id);
+    case 'cerebras':
+      // `.chat(id)` forces the Chat Completions endpoint — the only one Cerebras serves.
+      return createOpenAI({ apiKey, baseURL: CEREBRAS_BASE_URL, name: 'cerebras' }).chat(id);
   }
 }
 
 function routerOrder(keys?: ApiKeys): ProviderName[] {
-  return (process.env.ROUTER_ORDER ?? 'anthropic,openai,google')
+  return (process.env.ROUTER_ORDER ?? 'anthropic,openai,google,cerebras')
     .split(',')
     .map(s => s.trim() as ProviderName)
     .filter(p => isConfigured(p, keys));
@@ -82,6 +93,8 @@ const FAST_MODELS: Record<ProviderName, string> = {
   anthropic: 'claude-haiku-4-5-20251001',
   openai: 'gpt-5-mini',
   google: 'gemini-3.5-flash',
+  // Cerebras is already the fast tier — gpt-oss-120b runs well over 1000 tok/s.
+  cerebras: 'gpt-oss-120b',
 };
 
 export function resolveFastModel(provider?: ProviderName, keys?: ApiKeys): LanguageModel {
@@ -98,6 +111,6 @@ export function resolveFastModel(provider?: ProviderName, keys?: ApiKeys): Langu
 }
 
 export function availableProviders(keys?: ApiKeys): ProviderName[] {
-  const all: ProviderName[] = ['anthropic', 'openai', 'google'];
+  const all: ProviderName[] = ['anthropic', 'openai', 'google', 'cerebras'];
   return all.filter(p => isConfigured(p, keys));
 }
