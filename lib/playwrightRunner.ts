@@ -88,20 +88,34 @@ function buildConfig(baseUrl: string | undefined): string {
   ].join('\n');
 }
 
-function parseCounts(raw: string): { passed: number; failed: number; skipped: number } {
+export function parseCounts(raw: string): { passed: number; failed: number; skipped: number } {
   let passed = 0;
   let failed = 0;
   let skipped = 0;
   try {
-    const data = JSON.parse(raw) as { suites?: unknown[] };
+    const data = JSON.parse(raw) as { stats?: unknown; suites?: unknown[] };
+    const stats = data.stats as { expected?: unknown; flaky?: unknown; skipped?: unknown; unexpected?: unknown } | undefined;
+    if (stats && [stats.expected, stats.flaky, stats.skipped, stats.unexpected].every(value => typeof value === 'number')) {
+      return {
+        passed: (stats.expected as number) + (stats.flaky as number),
+        failed: stats.unexpected as number,
+        skipped: stats.skipped as number,
+      };
+    }
     const walk = (suites: unknown[]) => {
       for (const suite of suites) {
         const s = suite as { specs?: unknown[]; suites?: unknown[] };
         for (const spec of s.specs || []) {
           const sp = spec as { ok?: boolean; tests?: unknown[] };
           for (const test of sp.tests || []) {
-            const t = test as { status?: string };
-            if ((t.status || '').toLowerCase() === 'skipped') skipped += 1;
+            const t = test as { status?: string; results?: Array<{ status?: string }> };
+            const statuses = [
+              t.status,
+              Array.isArray(t.results) ? t.results.at(-1)?.status : undefined,
+            ].map(status => (status || '').toLowerCase());
+            if (statuses.some(status => status === 'skipped')) skipped += 1;
+            else if (statuses.some(status => status === 'expected' || status === 'passed' || status === 'flaky')) passed += 1;
+            else if (statuses.some(status => status === 'unexpected' || status === 'failed' || status === 'timedout' || status === 'interrupted')) failed += 1;
             else if (sp.ok === true) passed += 1;
             else failed += 1;
           }
@@ -134,7 +148,7 @@ export async function runPlaywrightTestInE2B(input: {
     await sandbox.files.write(`${REMOTE_DIR}/test.spec.js`, validated.code);
     await sandbox.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl));
     const env = baseUrl ? `BASE_URL=${shellQuote(baseUrl)} ` : '';
-    const cmd = `cd ${shellQuote(REMOTE_DIR)} && ${env}npx playwright test test.spec.js --reporter=json,list || true`;
+    const cmd = `cd ${shellQuote(REMOTE_DIR)} && ${env}npx playwright test test.spec.js || true`;
     const result = await sandbox.commands.run(cmd, { timeoutMs: timeoutSeconds * 1000 });
     const stdout = String((result as { stdout?: unknown }).stdout ?? '');
     const stderr = String((result as { stderr?: unknown }).stderr ?? '');
