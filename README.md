@@ -17,7 +17,8 @@ _Pointed at its own repo: it clones the code into a cloud sandbox, lays out a pl
 - **Autonomous coding** — clones repos, installs packages, runs commands, reads and writes files
 - **Task planning** — the agent records a step-by-step plan up front (`update_plan`) and keeps it live as it works; the Plan tab shows each step's status with a progress bar
 - **Fast Apply** — applies targeted code edits by regenerating only the changed region (à la Cursor)
-- **Multi-provider LLM** — Anthropic (Claude Opus 4.8), OpenAI (GPT-5), Google (Gemini 3); switch per-session from the UI
+- **Multi-provider LLM** — Anthropic (Claude Opus 4.8), OpenAI (GPT-5), Google (Gemini 3), and Cerebras (gpt-oss-120b at ~1000+ tok/s); switch per-session from the UI
+- **Vision recognition (Cerebras × Gemma 4)** — the `/recognize` page reads a screenshot of any app with `gemma-4-31b` on Cerebras and writes a Playwright test from the pixels (speed + cost shown), then hands it straight to the coding agent
 - **Streaming UI** — every tool call (command + output, file contents, diffs) streams in real time
 - **MCP integration** — connect any MCP server from the UI; Linear is pre-configured via env var
 - **Live preview** — `expose_port` surfaces a public URL for any server the agent starts, shown in an embedded iframe
@@ -28,7 +29,7 @@ _Pointed at its own repo: it clones the code into a cloud sandbox, lays out a pl
 
 - Node.js 18+
 - An [E2B API key](https://e2b.dev/docs/getting-started/api-key)
-- At least one LLM API key (Anthropic, OpenAI, or Google)
+- At least one LLM API key (Anthropic, OpenAI, Google, or Cerebras)
 
 ## Quick start
 
@@ -48,6 +49,7 @@ E2B_API_KEY=your_e2b_api_key
 ANTHROPIC_API_KEY=your_anthropic_key
 OPENAI_API_KEY=your_openai_key
 GOOGLE_GENERATIVE_AI_API_KEY=your_google_key
+CEREBRAS_API_KEY=your_cerebras_key   # also powers the /recognize vision demo (Gemma 4)
 
 # Optional — Linear MCP (pre-configured tool in the agent)
 LINEAR_API_KEY=your_linear_key
@@ -58,7 +60,7 @@ OPENAI_MODEL=gpt-5
 GOOGLE_MODEL=gemini-3.1-pro-preview
 
 # Optional — set provider priority order (first available wins)
-ROUTER_ORDER=anthropic,openai,google
+ROUTER_ORDER=anthropic,openai,google,cerebras
 
 # Optional — additional MCP servers as JSON
 # MCP_SERVERS=[{"name":"my-server","url":"https://...","authToken":"..."}]

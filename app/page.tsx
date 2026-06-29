@@ -175,7 +175,19 @@ export default function Page() {
       .then(d => setServerReady(Boolean(d?.serverReady)))
       .catch(() => {});
   }, []);
-  const keysReady = Boolean(apiKeys.e2b) && Boolean(apiKeys.anthropic || apiKeys.openai || apiKeys.google);
+  // Handoff from the recognition page (/recognize): a generated test arrives as a task in
+  // sessionStorage. Pick it up once, prefill the composer, and clear it. The state update
+  // is deferred to a microtask so it isn't a synchronous setState in the effect body.
+  useEffect(() => {
+    let handoff: string | null = null;
+    try { handoff = sessionStorage.getItem('acaHandoffTask'); } catch {}
+    if (!handoff) return;
+    try { sessionStorage.removeItem('acaHandoffTask'); } catch {}
+    const text = handoff;
+    queueMicrotask(() => setTask(text));
+  }, []);
+
+  const keysReady = Boolean(apiKeys.e2b) && Boolean(apiKeys.anthropic || apiKeys.openai || apiKeys.google || apiKeys.cerebras);
   const needsKeys = !serverReady && !keysReady;
 
   function handleKeysChange(keys: ApiKeys) {

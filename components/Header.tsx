@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import Icon from './Icon';
 import PyramidLogo from './PyramidLogo';
 import type { ProviderName, MCPServerConfig, ApiKeys } from '@/lib/types';
@@ -30,6 +31,13 @@ const PROVIDERS = [
     models: [
       { id: 'gemini-3.1-pro-preview', name: 'gemini-3.1-pro', meta: 'latest' },
       { id: 'gemini-3.5-flash', name: 'gemini-3.5-flash', meta: 'fast' },
+    ],
+  },
+  {
+    id: 'cerebras' as ProviderName, label: 'Cerebras', glyph: 'Cb',
+    models: [
+      { id: 'gpt-oss-120b', name: 'gpt-oss-120b', meta: '~1000 tok/s' },
+      { id: 'zai-glm-4.7', name: 'zai-glm-4.7', meta: 'reasoning' },
     ],
   },
 ];
@@ -399,6 +407,7 @@ const KEY_FIELDS: { id: keyof ApiKeys; label: string; placeholder: string; help:
   { id: 'anthropic', label: 'Anthropic', placeholder: 'sk-ant-…', help: 'Claude' },
   { id: 'openai', label: 'OpenAI', placeholder: 'sk-…', help: 'GPT' },
   { id: 'google', label: 'Google', placeholder: 'AIza…', help: 'Gemini' },
+  { id: 'cerebras', label: 'Cerebras', placeholder: 'csk-…', help: 'gpt-oss / Gemma 4' },
 ];
 
 // Bring-your-own-key panel. Keys live only in the visitor's browser (localStorage) and are
@@ -498,6 +507,9 @@ export default function Header({ provider, model, onChange, onNew, running, mcpS
 
       <div className="hdr-spacer" />
 
+      <Link href="/recognize" className="pill" style={{ textDecoration: 'none' }} title="Cerebras × Gemma 4 vision recognition">
+        <Icon name="eye" size={13} />Recognize
+      </Link>
       <KeysMenu apiKeys={apiKeys} onKeysChange={onKeysChange} />
       <McpMenu servers={mcpServers} envServers={envServers} onServersChange={onMCPChange} />
       <ProviderPicker provider={provider} model={model} onChange={onChange} />
