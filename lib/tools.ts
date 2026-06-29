@@ -73,12 +73,12 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiK
 
     run_playwright_test: tool({
       description:
-        'Validate and run a complete Playwright test directly in the dedicated E2B Playwright sandbox template. Use this for generated Playwright specs instead of installing @playwright/test or running npx playwright in the generic coding sandbox. Set visual=true when the user asks to see/watch the browser run; this starts a streamed noVNC desktop and returns streamUrl.',
+        'Validate and run a complete Playwright test directly in the dedicated E2B Playwright sandbox template. Use this for generated Playwright specs instead of installing @playwright/test or running npx playwright in the generic coding sandbox. Set visual=true when the user asks to see/watch/replay the browser run: the run is recorded and the video is returned in videoUrl, which the UI plays in the Preview pane. Do NOT tell the user to run it locally to see it — pass visual=true instead.',
       inputSchema: z.object({
         testCode: z.string().min(20).max(120_000).describe('Complete Playwright spec source. Markdown fences are accepted and stripped.'),
         baseUrl: z.string().url().optional().describe('Optional public app URL to inject as Playwright baseURL and BASE_URL.'),
         timeoutSeconds: z.number().int().min(30).max(300).optional().describe('Wall-clock timeout for the Playwright run.'),
-        visual: z.boolean().optional().describe('Run headed in a streamed noVNC desktop so the user can watch the browser actions.'),
+        visual: z.boolean().optional().describe('Record the run and return a playable video (videoUrl) so the user can watch the browser actions in the Preview pane.'),
       }),
       execute: async (input) => {
         return runPlaywrightTestInE2B({

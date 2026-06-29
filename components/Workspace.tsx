@@ -11,12 +11,13 @@ function safeLine(line: string): string {
   return line.replace(/[<>&"]/g, '');
 }
 
-type PreviewMode = 'browser' | 'vnc';
+type PreviewMode = 'browser' | 'vnc' | 'recording';
 
 interface Props {
   previewUrl: string | null;
   vncUrl: string | null;
   vncLoading: boolean;
+  recordingUrl: string | null;
   onStartDesktop: () => void;
   touchedFiles: TouchedFile[];
   plan: PlanStep[];
@@ -24,11 +25,12 @@ interface Props {
   running: boolean;
 }
 
-export default function Workspace({ previewUrl, vncUrl, vncLoading, onStartDesktop, touchedFiles, plan, sandboxUp, running }: Props) {
+export default function Workspace({ previewUrl, vncUrl, vncLoading, recordingUrl, onStartDesktop, touchedFiles, plan, sandboxUp, running }: Props) {
   const [tab, setTab] = useState<'plan' | 'files' | 'preview'>('plan');
   const [mode, setMode] = useState<PreviewMode>('browser');
   const sawPreview = useRef(false);
   const sawVnc = useRef(false);
+  const sawRecording = useRef(false);
   const sawFiles = useRef(false);
 
   useEffect(() => {
@@ -41,11 +43,15 @@ export default function Workspace({ previewUrl, vncUrl, vncLoading, onStartDeskt
   useEffect(() => {
     if (vncUrl && !sawVnc.current) { sawVnc.current = true; setMode('vnc'); setTab('preview'); }
   }, [vncUrl]);
+  // A recorded Playwright run is the "watch it run" payoff — jump straight to it.
+  useEffect(() => {
+    if (recordingUrl && !sawRecording.current) { sawRecording.current = true; setMode('recording'); setTab('preview'); }
+  }, [recordingUrl]);
 
-  // Both Browser and Desktop are always offered once there's anything to preview; the
-  // Desktop toggle spins up its sandbox on demand. "Open in new tab" follows the selection.
-  const showPreviewToggle = !!(previewUrl || vncUrl || vncLoading);
-  const activeUrl = mode === 'vnc' ? vncUrl : previewUrl;
+  // Browser/Desktop/Recording are offered once each has something to show; the Desktop toggle
+  // spins up its sandbox on demand. "Open in new tab" follows the selection.
+  const showPreviewToggle = !!(previewUrl || vncUrl || vncLoading || recordingUrl);
+  const activeUrl = mode === 'vnc' ? vncUrl : mode === 'recording' ? recordingUrl : previewUrl;
 
   const planDone = plan.filter(s => s.status === 'done').length;
   const tabs = [
@@ -68,6 +74,12 @@ export default function Workspace({ previewUrl, vncUrl, vncLoading, onStartDeskt
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
           {tab === 'preview' && showPreviewToggle && (
             <div className="seg">
+              {recordingUrl && (
+                <button className={`seg-btn ${mode === 'recording' ? 'active' : ''}`}
+                  onClick={() => setMode('recording')}>
+                  <Icon name="eye" size={12} />Recording
+                </button>
+              )}
               <button className={`seg-btn ${mode === 'vnc' ? 'active' : ''}`}
                 onClick={() => { setMode('vnc'); onStartDesktop(); }}>
                 <Icon name="box" size={12} />Desktop
@@ -78,7 +90,9 @@ export default function Workspace({ previewUrl, vncUrl, vncLoading, onStartDeskt
               </button>
             </div>
           )}
-          {tab === 'preview' && activeUrl && (
+          {/* The recording is a data: URL — not meaningfully openable in a new tab, so the
+              external link only shows for the live browser/desktop sources. */}
+          {tab === 'preview' && activeUrl && mode !== 'recording' && (
             <a href={activeUrl} target="_blank" rel="noopener noreferrer" className="icon-btn" title="Open in new tab">
               <Icon name="external" size={14} />
             </a>
@@ -89,7 +103,7 @@ export default function Workspace({ previewUrl, vncUrl, vncLoading, onStartDeskt
       <div className="work-body">
         {tab === 'plan' && <PlanView plan={plan} running={running} sandboxUp={sandboxUp} />}
         {tab === 'files' && <FilesView files={touchedFiles} />}
-        {tab === 'preview' && <PreviewView mode={mode} previewUrl={previewUrl} vncUrl={vncUrl} vncLoading={vncLoading} />}
+        {tab === 'preview' && <PreviewView mode={mode} previewUrl={previewUrl} vncUrl={vncUrl} vncLoading={vncLoading} recordingUrl={recordingUrl} />}
       </div>
 
       <SandboxStrip up={sandboxUp} running={running} />
@@ -371,14 +385,55 @@ function PlanView({ plan, running, sandboxUp }: { plan: PlanStep[]; running: boo
   );
 }
 
-function PreviewView({ mode, previewUrl, vncUrl, vncLoading }: {
+function PreviewView({ mode, previewUrl, vncUrl, vncLoading, recordingUrl }: {
   mode: PreviewMode;
   previewUrl: string | null;
   vncUrl: string | null;
   vncLoading: boolean;
+  recordingUrl: string | null;
 }) {
+  if (mode === 'recording') return <RecordingView url={recordingUrl} />;
   if (mode === 'vnc') return <VncView url={vncUrl} loading={vncLoading} />;
   return <BrowserView url={previewUrl} />;
+}
+
+// Playback of a recorded Playwright run (visual=true). The src is a self-contained
+// data:video/webm URL embedded in the tool result, so it plays with no extra round-trip and
+// survives across server instances. Autoplay + loop so the user immediately sees the run.
+function RecordingView({ url }: { url: string | null }) {
+  if (!url) {
+    return (
+      <div className="preview-empty">
+        <div className="inner">
+          <div className="glyph">{'╔═══════╗\n║   ▶   ║\n╚═══════╝'}</div>
+          <p>No recording yet</p>
+          <div className="sub">Run a Playwright test with visual mode<br />to watch the browser actions here.</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="browser">
+      <div className="browser-bar">
+        <div className="browser-dots"><i /><i /><i /></div>
+        <div className="browser-url">
+          <span className="lock"><Icon name="eye" size={12} /></span>
+          <span>Recorded Playwright run · video</span>
+        </div>
+        <span className="live" style={{ marginLeft: 'auto' }}><span className="d" />replay</span>
+      </div>
+      <video
+        src={url}
+        className="browser-frame"
+        style={{ background: '#000', objectFit: 'contain' }}
+        controls
+        autoPlay
+        loop
+        muted
+        playsInline
+      />
+    </div>
+  );
 }
 
 // The noVNC stream is its own self-chromed viewer — embed it directly, full-bleed, with a

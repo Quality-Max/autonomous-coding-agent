@@ -43,12 +43,12 @@ function usePreviewUrl(messages: UIMessage[]): string | null {
   return null;
 }
 
-function usePlaywrightVisualUrl(messages: UIMessage[]): string | null {
+function usePlaywrightVideoUrl(messages: UIMessage[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     for (const part of messages[i].parts ?? []) {
       if (getToolName(part) === 'run_playwright_test') {
         const out = getToolOutput(part);
-        if (typeof out?.streamUrl === 'string') return out.streamUrl;
+        if (typeof out?.videoUrl === 'string') return out.videoUrl;
       }
     }
   }
@@ -256,7 +256,7 @@ export default function Page() {
   const isStreaming = status === 'streaming' || status === 'submitted';
   const previewUrl = usePreviewUrl(messages);
   const activePreviewUrl = previewUrl || handoffPreviewUrl;
-  const playwrightVisualUrl = usePlaywrightVisualUrl(messages);
+  const playwrightVideoUrl = usePlaywrightVideoUrl(messages);
   const touchedFiles = useTouchedFiles(messages);
   const plan = usePlan(messages);
   const sandboxUp = useSandboxUp(messages);
@@ -265,7 +265,9 @@ export default function Page() {
   // Desktop toggle, which spins one up on demand. The agent never starts it.
   const [manualVncUrl, setManualVncUrl] = useState<string | null>(null);
   const [vncLoading, setVncLoading] = useState(false);
-  const vncUrl = playwrightVisualUrl || manualVncUrl;
+  const vncUrl = manualVncUrl;
+  // A recorded Playwright run (visual=true) — played back in the Preview pane.
+  const recordingUrl = playwrightVideoUrl;
 
   // User clicked Desktop with no stream yet — open the current preview URL in a fresh
   // desktop sandbox (separate from the coding sandbox).
@@ -390,6 +392,7 @@ export default function Page() {
           previewUrl={activePreviewUrl}
           vncUrl={vncUrl}
           vncLoading={vncLoading}
+          recordingUrl={recordingUrl}
           onStartDesktop={startDesktopPreview}
           touchedFiles={touchedFiles}
           plan={plan}

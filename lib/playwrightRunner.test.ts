@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extractPlaywrightTestCode, parseCounts, validatePlaywrightTest } from './playwrightRunner';
+import { buildConfig, extractPlaywrightTestCode, parseCounts, validatePlaywrightTest } from './playwrightRunner';
 
 describe('extractPlaywrightTestCode', () => {
   it('unwraps fenced Playwright specs', () => {
@@ -23,6 +23,26 @@ describe('validatePlaywrightTest', () => {
   it('rejects prose without a Playwright import', () => {
     const result = validatePlaywrightTest('Click the login button and check the title.');
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('buildConfig', () => {
+  it('records a video in visual mode', () => {
+    const cfg = buildConfig('https://saucedemo.com', true);
+    expect(cfg).toContain("video: 'on'");
+    expect(cfg).toContain('slowMo: 450');
+    expect(cfg).toContain("outputDir: './test-results'");
+    expect(cfg).toContain('baseURL: "https://saucedemo.com"');
+    // Recording is done headless — a streamed headed desktop would need a GUI template the
+    // Playwright image doesn't ship.
+    expect(cfg).toContain('headless: true');
+  });
+
+  it('does not record a video in normal mode', () => {
+    const cfg = buildConfig(undefined, false);
+    expect(cfg).not.toContain('video:');
+    expect(cfg).not.toContain('slowMo');
+    expect(cfg).not.toContain('baseURL');
   });
 });
 
