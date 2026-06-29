@@ -44,6 +44,7 @@ Copy `.env.example` to `.env.local` and fill in your keys (`.env.local` is gitig
 ```env
 # Required
 E2B_API_KEY=your_e2b_api_key
+E2B_PLAYWRIGHT_TEMPLATE=qualitymax-playwright
 
 # At least one of these
 ANTHROPIC_API_KEY=your_anthropic_key
@@ -127,6 +128,7 @@ The suite is deterministic and needs no credentials:
 
 - **Security validators** — exhaustive coverage of the live-preview URL guard (`assertSafeHttpUrl`): allows public hosts; rejects non-http(s) schemes, loopback/private/cloud-metadata hosts, IPv6 literals, the IP-notation SSRF bypasses (octal/hex/decimal), and trailing-dot tricks — plus `shellQuote` (command-injection guard).
 - **Route contract** — `POST`/`DELETE /api/preview` behaviour (success, 400 validation, 502 boot/validation failure, full teardown) with the sandbox layer mocked.
+- **Playwright runner** — generated Playwright specs are validated and run in the dedicated E2B template named by `E2B_PLAYWRIGHT_TEMPLATE`, so the agent does not install browser dependencies in the generic coding sandbox.
 - **Live sandbox smoke test** — an opt-in end-to-end (`lib/preview.e2e.test.ts`) that boots a real desktop sandbox, asserts the noVNC URL, and tears it down. It runs only when `E2B_API_KEY` is set, so CI stays deterministic.
 
 ## Live demo (bring your own key)

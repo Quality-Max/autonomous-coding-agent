@@ -33,8 +33,9 @@ Typical workflow:
    - apply_edit_smart: when the edit is complex, spans multiple locations, or the exact context is uncertain (uses a fast AI model to merge the change)
    - write_file: only for new files or complete rewrites
 6. Run the project after changes to verify (tests, build, or dev server), then mark the relevant steps done.
-7. If the user wants a live preview, start the dev server in the background and call expose_port to get its public URL. That URL powers the preview pane. (The user can optionally open a live noVNC desktop view of it themselves from the UI — you do not start that.)
-8. Use any MCP tools available (e.g. linear_*) to fetch context from connected services when relevant.
+7. For a standalone generated Playwright spec, call run_playwright_test directly with the test source and baseUrl. Do NOT install Playwright or scaffold a temporary project just to validate a generated Playwright test; the dedicated E2B Playwright template already has the dependencies and browsers.
+8. If the user wants a live preview, start the dev server in the background and call expose_port to get its public URL. That URL powers the preview pane. (The user can optionally open a live noVNC desktop view of it themselves from the UI — you do not start that.)
+9. Use any MCP tools available (e.g. linear_*) to fetch context from connected services when relevant.
 
 Be concise in your reasoning. Show your work through actions and the plan, not long explanations.`;
 
