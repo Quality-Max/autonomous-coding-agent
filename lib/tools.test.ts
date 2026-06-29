@@ -10,6 +10,7 @@ import { makeTools } from './tools';
 const tools = makeTools({} as unknown as Sandbox);
 // The zod schema we passed to tool() is preserved as .inputSchema.
 const schema = (tools.request_approval as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } }).inputSchema;
+const runPlaywrightSchema = (tools.run_playwright_test as { inputSchema: { safeParse: (v: unknown) => { success: boolean } } }).inputSchema;
 
 describe('request_approval input schema — accepts realistic model output', () => {
   it('accepts the suggested 2-3 options', () => {
@@ -44,5 +45,15 @@ describe('request_approval input schema — still rejects genuinely empty calls'
 
   it('rejects empty-string options', () => {
     expect(schema.safeParse({ summary: 's', options: [''] }).success).toBe(false);
+  });
+});
+
+describe('run_playwright_test input schema', () => {
+  it('accepts visual runs for streamed browser replay', () => {
+    expect(runPlaywrightSchema.safeParse({
+      testCode: "import { test } from '@playwright/test';\ntest('x', async ({ page }) => { await page.goto('https://example.com'); });",
+      baseUrl: 'https://example.com',
+      visual: true,
+    }).success).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { runPlaywrightTestInE2B } from './playwrightRunner';
 import { resolveFastModel } from './router';
 import type { ProviderName, ApiKeys } from './types';
 
-export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiKeys) {
+export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiKeys, sessionId?: string) {
   return {
     update_plan: tool({
       description:
@@ -73,11 +73,12 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiK
 
     run_playwright_test: tool({
       description:
-        'Validate and run a complete Playwright test directly in the dedicated E2B Playwright sandbox template. Use this for generated Playwright specs instead of installing @playwright/test or running npx playwright in the generic coding sandbox.',
+        'Validate and run a complete Playwright test directly in the dedicated E2B Playwright sandbox template. Use this for generated Playwright specs instead of installing @playwright/test or running npx playwright in the generic coding sandbox. Set visual=true when the user asks to see/watch the browser run; this starts a streamed noVNC desktop and returns streamUrl.',
       inputSchema: z.object({
         testCode: z.string().min(20).max(120_000).describe('Complete Playwright spec source. Markdown fences are accepted and stripped.'),
         baseUrl: z.string().url().optional().describe('Optional public app URL to inject as Playwright baseURL and BASE_URL.'),
         timeoutSeconds: z.number().int().min(30).max(300).optional().describe('Wall-clock timeout for the Playwright run.'),
+        visual: z.boolean().optional().describe('Run headed in a streamed noVNC desktop so the user can watch the browser actions.'),
       }),
       execute: async (input) => {
         return runPlaywrightTestInE2B({
@@ -85,6 +86,8 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiK
           baseUrl: input.baseUrl,
           timeoutSeconds: input.timeoutSeconds,
           e2bKey: keys?.e2b,
+          visual: input.visual,
+          sessionId,
         });
       },
     }),
@@ -208,8 +211,8 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiK
         return { port: input.port, url };
       },
     }),
-    // Note: the live noVNC *desktop* preview is intentionally NOT an agent tool — it is
-    // started only when the user clicks the Desktop toggle (POST /api/preview), so it never
-    // spins up a desktop sandbox on its own. The agent's job is just to expose the port.
+    // Note: ordinary live noVNC desktop previews are user-started via POST /api/preview.
+    // The only agent-started noVNC sandbox is run_playwright_test({ visual: true }), because
+    // that is the explicit "show me the generated Playwright run" workflow.
   };
 }

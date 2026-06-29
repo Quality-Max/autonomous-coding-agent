@@ -11,10 +11,14 @@ vi.mock('@/lib/preview', () => ({
 vi.mock('@/lib/sandbox', () => ({
   killSandbox: vi.fn(),
 }));
+vi.mock('@/lib/playwrightRunner', () => ({
+  killPlaywrightVisualRun: vi.fn(),
+}));
 
 import { POST, DELETE } from './route';
 import { startLivePreview, killPreviewSandbox } from '@/lib/preview';
 import { killSandbox } from '@/lib/sandbox';
+import { killPlaywrightVisualRun } from '@/lib/playwrightRunner';
 
 function req(method: string, body: unknown): NextRequest {
   return new Request('http://localhost/api/preview', {
@@ -71,6 +75,7 @@ describe('DELETE /api/preview', () => {
     await expect(res.json()).resolves.toEqual({ ok: true });
     expect(killSandbox).toHaveBeenCalledWith('s1', undefined);
     expect(killPreviewSandbox).toHaveBeenCalledWith('s1', undefined);
+    expect(killPlaywrightVisualRun).toHaveBeenCalledWith('s1', undefined);
   });
 
   it('forwards the BYOK e2bKey when tearing down', async () => {
@@ -78,6 +83,7 @@ describe('DELETE /api/preview', () => {
     expect(res.status).toBe(200);
     expect(killSandbox).toHaveBeenCalledWith('s1', 'e2b_byok');
     expect(killPreviewSandbox).toHaveBeenCalledWith('s1', 'e2b_byok');
+    expect(killPlaywrightVisualRun).toHaveBeenCalledWith('s1', 'e2b_byok');
   });
 
   it('rejects a missing sessionId with 400 and kills nothing', async () => {
@@ -85,5 +91,6 @@ describe('DELETE /api/preview', () => {
     expect(res.status).toBe(400);
     expect(killSandbox).not.toHaveBeenCalled();
     expect(killPreviewSandbox).not.toHaveBeenCalled();
+    expect(killPlaywrightVisualRun).not.toHaveBeenCalled();
   });
 });
