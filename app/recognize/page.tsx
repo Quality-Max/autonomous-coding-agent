@@ -9,8 +9,6 @@ import type { ApiKeys } from '@/lib/types';
 
 // Key under which the agent page picks up a handoff task on mount (see app/page.tsx).
 const HANDOFF_KEY = 'acaHandoffTask';
-const HANDOFF_MODEL = 'gpt-oss-120b';
-
 interface VisionResult {
   model: string;
   provider: string;
@@ -29,6 +27,7 @@ interface VisionResult {
 
 interface VisionResponse {
   screenshot: string;
+  imageSource?: 'upload' | 'url';
   primary: VisionResult;
   baseline: VisionResult | null;
   error?: string;
@@ -185,14 +184,17 @@ export default function RecognizePage() {
     const task =
       `A multimodal model (${result.model}) looked at ${url ? `the app at ${url}` : 'a screenshot of the app under test'} ` +
       `and generated this Playwright test:\n\n\`\`\`\n${result.testCode}\n\`\`\`\n\n` +
-      `In this repository: place the test in the correct tests directory, adapt ` +
-      `imports/selectors/baseURL${url ? ` (${url})` : ''} to match the project, run the relevant tests, and ` +
-      `summarize the result. Keep the change focused.`;
+      `First, call run_playwright_test with this exact test and baseUrl ${url || '(none)'} ` +
+      `to validate it in the dedicated Playwright E2B sandbox. Do not install Playwright ` +
+      `or create a temporary Playwright project in the generic coding sandbox. After that, ` +
+      `if a repository is present, place the test in the correct tests directory and adapt ` +
+      `imports/selectors/baseURL${url ? ` (${url})` : ''} to match the project. Summarize the run result.`;
     try {
       sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
         task,
+        appUrl: url || undefined,
         provider: 'cerebras',
-        model: HANDOFF_MODEL,
+        model: result.model,
       }));
     } catch {}
     router.push('/');

@@ -112,6 +112,7 @@ export default function Page() {
   const [model, setModel] = useState('gemini-3.1-pro-preview');
   const [repo, setRepo] = useState('');
   const [task, setTask] = useState('');
+  const [handoffPreviewUrl, setHandoffPreviewUrl] = useState<string | null>(null);
   // #6 — Start with [] on both server and client to avoid SSR/client hydration mismatch.
   // Load from localStorage in a useEffect (client-only) after first render.
   const [mcpServers, setMCPServers] = useState<MCPServerConfig[]>([]);
@@ -184,11 +185,11 @@ export default function Page() {
     try { handoff = sessionStorage.getItem('acaHandoffTask'); } catch {}
     if (!handoff) return;
     try { sessionStorage.removeItem('acaHandoffTask'); } catch {}
-    let payload: { task: string; provider?: ProviderName; model?: string } | null = null;
+    let payload: { task: string; provider?: ProviderName; model?: string; appUrl?: string } | null = null;
     try {
       const parsed = JSON.parse(handoff) as unknown;
       if (parsed && typeof parsed === 'object') {
-        const record = parsed as { task?: unknown; provider?: unknown; model?: unknown };
+        const record = parsed as { task?: unknown; provider?: unknown; model?: unknown; appUrl?: unknown };
         const providerValue = record.provider;
         if (typeof record.task === 'string') {
           payload = {
@@ -197,6 +198,7 @@ export default function Page() {
               ? providerValue
               : undefined,
             model: typeof record.model === 'string' ? record.model : undefined,
+            appUrl: typeof record.appUrl === 'string' ? record.appUrl : undefined,
           };
         }
       }
@@ -206,6 +208,7 @@ export default function Page() {
       setTask(next.task);
       if (next.provider) setProvider(next.provider);
       if (next.model) setModel(next.model);
+      setHandoffPreviewUrl(next.appUrl || null);
     });
   }, []);
 
@@ -240,6 +243,7 @@ export default function Page() {
 
   const isStreaming = status === 'streaming' || status === 'submitted';
   const previewUrl = usePreviewUrl(messages);
+  const activePreviewUrl = previewUrl || handoffPreviewUrl;
   const touchedFiles = useTouchedFiles(messages);
   const plan = usePlan(messages);
   const sandboxUp = useSandboxUp(messages);
@@ -253,13 +257,13 @@ export default function Page() {
   // User clicked Desktop with no stream yet — open the current preview URL in a fresh
   // desktop sandbox (separate from the coding sandbox).
   async function startDesktopPreview() {
-    if (vncUrl || vncLoading || !previewUrl) return;
+    if (vncUrl || vncLoading || !activePreviewUrl) return;
     setVncLoading(true);
     try {
       const res = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ sessionId: sessionIdRef.current, url: previewUrl, e2bKey: apiKeysRef.current.e2b }),
+        body: JSON.stringify({ sessionId: sessionIdRef.current, url: activePreviewUrl, e2bKey: apiKeysRef.current.e2b }),
       });
       const data = await res.json().catch(() => null);
       if (res.ok && data?.streamUrl) setManualVncUrl(data.streamUrl as string);
@@ -323,6 +327,7 @@ export default function Page() {
     setWorkspaceKey(k => k + 1);
     setRepo('');
     setTask('');
+    setHandoffPreviewUrl(null);
   }
 
   return (
@@ -369,7 +374,7 @@ export default function Page() {
 
         <Workspace
           key={workspaceKey}
-          previewUrl={previewUrl}
+          previewUrl={activePreviewUrl}
           vncUrl={vncUrl}
           vncLoading={vncLoading}
           onStartDesktop={startDesktopPreview}

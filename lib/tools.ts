@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { Sandbox } from 'e2b';
 import { runCommand, readFile, writeFile, listFiles, getPublicUrl } from './sandbox';
 import { fastApply } from './fastApply';
+import { runPlaywrightTestInE2B } from './playwrightRunner';
 import { resolveFastModel } from './router';
 import type { ProviderName, ApiKeys } from './types';
 
@@ -67,6 +68,24 @@ export function makeTools(sandbox: Sandbox, provider?: ProviderName, keys?: ApiK
       }),
       execute: async (input) => {
         return runCommand(sandbox, input.cmd, { background: input.background });
+      },
+    }),
+
+    run_playwright_test: tool({
+      description:
+        'Validate and run a complete Playwright test directly in the dedicated E2B Playwright sandbox template. Use this for generated Playwright specs instead of installing @playwright/test or running npx playwright in the generic coding sandbox.',
+      inputSchema: z.object({
+        testCode: z.string().min(20).max(120_000).describe('Complete Playwright spec source. Markdown fences are accepted and stripped.'),
+        baseUrl: z.string().url().optional().describe('Optional public app URL to inject as Playwright baseURL and BASE_URL.'),
+        timeoutSeconds: z.number().int().min(30).max(300).optional().describe('Wall-clock timeout for the Playwright run.'),
+      }),
+      execute: async (input) => {
+        return runPlaywrightTestInE2B({
+          testCode: input.testCode,
+          baseUrl: input.baseUrl,
+          timeoutSeconds: input.timeoutSeconds,
+          e2bKey: keys?.e2b,
+        });
       },
     }),
 
