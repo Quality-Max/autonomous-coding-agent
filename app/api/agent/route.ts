@@ -3,7 +3,6 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getOrCreateSandbox, killSandbox } from '@/lib/sandbox';
 import { killPreviewSandbox } from '@/lib/preview';
-import { killPlaywrightVisualRun } from '@/lib/playwrightRunner';
 import { resolveModel } from '@/lib/router';
 import { makeTools } from '@/lib/tools';
 import { loadMCPTools, isSafeSSEUrl, SAFE_AUTH } from '@/lib/mcp';
@@ -90,14 +89,12 @@ export async function POST(req: NextRequest) {
   if (req.signal.aborted) {
     killSandbox(sessionId, keys?.e2b);
     void killPreviewSandbox(sessionId, keys?.e2b);
-    void killPlaywrightVisualRun(sessionId, keys?.e2b);
     await cleanupMCP();
     return NextResponse.json({ error: 'Request aborted' }, { status: 499 });
   }
   req.signal.addEventListener('abort', () => {
     killSandbox(sessionId, keys?.e2b);
     void killPreviewSandbox(sessionId, keys?.e2b);
-    void killPlaywrightVisualRun(sessionId, keys?.e2b);
     void cleanupMCP();
   });
 

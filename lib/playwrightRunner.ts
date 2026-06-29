@@ -1,14 +1,15 @@
 import { Sandbox } from 'e2b';
-import { Sandbox as DesktopSandbox } from '@e2b/desktop';
 import { assertSafeHttpUrl, shellQuote } from './preview';
 
 const DEFAULT_TEMPLATE = 'qualitymax-playwright';
 const REMOTE_DIR = '/home/user/qmax-playwright';
 const DEFAULT_TIMEOUT_SECONDS = 180;
 const MAX_TIMEOUT_SECONDS = 300;
-const VISUAL_TIMEOUT_MS = 10 * 60 * 1000;
-
-const visualRuns = new Map<string, { id: string }>();
+// Recorded run videos are embedded into the tool result as a data URL so the Preview pane
+// can play them with no extra round-trip. A full saucedemo login records to ~60KB of webm;
+// this ceiling keeps a pathological long run from bloating the chat stream. Above it we keep
+// the pass/fail result and just omit the recording.
+const MAX_VIDEO_BYTES = 8 * 1024 * 1024;
 
 export interface PlaywrightRunResult {
   success: boolean;
@@ -24,8 +25,9 @@ export interface PlaywrightRunResult {
   framework: 'playwright';
   template: string;
   visual?: boolean;
-  streamUrl?: string;
-  sandboxId?: string;
+  // Data URL (data:video/webm;base64,…) of the recorded run, present when visual=true and the
+  // recording was captured under the size ceiling. The UI plays this in the Preview pane.
+  videoUrl?: string;
 }
 
 function resultError(message: string, durationSeconds = 0, template = playwrightTemplate()): PlaywrightRunResult {
@@ -74,29 +76,34 @@ export function validatePlaywrightTest(raw: string): { ok: true; code: string } 
   return { ok: true, code };
 }
 
-function buildConfig(baseUrl: string | undefined, visual = false): string {
+// When visual=true the run records a video. slowMo paces the browser actions so the recording
+// is watchable rather than a sub-second blur, and `video: 'on'` writes one webm per test into
+// the output dir, which we extract afterwards. Headless stays true throughout: recording a
+// headless run is reliable in the standard Playwright template, whereas a streamed *headed*
+// desktop would need a GUI template the Playwright image doesn't ship.
+export function buildConfig(baseUrl: string | undefined, visual = false): string {
   const baseUrlLine = baseUrl ? `\n    baseURL: ${JSON.stringify(baseUrl)},` : '';
-  const visualLines = visual
+  const visualUseLines = visual
     ? [
-        '    launchOptions: {',
-        '      slowMo: 650,',
-        '    },',
+        "    video: 'on',",
+        '    launchOptions: { slowMo: 450 },',
       ]
     : [];
   return [
     "const { defineConfig } = require('@playwright/test');",
     'module.exports = defineConfig({',
     "  testDir: './',",
+    "  outputDir: './test-results',",
     '  timeout: 30000,',
     '  retries: 0,',
     '  workers: 1,',
     "  reporter: [['json', { outputFile: 'results.json' }], ['list']],",
     '  use: {',
-    `    headless: ${visual ? 'false' : 'true'},` + baseUrlLine,
+    `    headless: true,` + baseUrlLine,
     '    viewport: { width: 1280, height: 720 },',
     "    screenshot: 'only-on-failure',",
     '    actionTimeout: 15000,',
-    ...visualLines,
+    ...visualUseLines,
     '  },',
     '});',
     '',
@@ -143,18 +150,7 @@ export function parseCounts(raw: string): { passed: number; failed: number; skip
   return { passed, failed, skipped };
 }
 
-function withVisualHold(code: string): string {
-  return [
-    code,
-    '',
-    "test.afterEach(async ({ page }) => {",
-    "  await page.waitForTimeout(Number(process.env.QMAX_VISUAL_HOLD_MS || '15000'));",
-    '});',
-    '',
-  ].join('\n');
-}
-
-function playwrightCommand(baseUrl: string | undefined, opts: { startupDelaySeconds?: number } = {}): string {
+function playwrightCommand(baseUrl: string | undefined): string {
   const env = [
     `export PLAYWRIGHT_BROWSERS_PATH=${shellQuote(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
     'export NODE_PATH="$(npm root -g 2>/dev/null)${NODE_PATH:+:$NODE_PATH}"',
@@ -168,15 +164,30 @@ function playwrightCommand(baseUrl: string | undefined, opts: { startupDelaySeco
     'process.exit(result.status ?? 1);',
   ].join(' ');
 
-  const delay = opts.startupDelaySeconds ? `sleep ${opts.startupDelaySeconds} && ` : '';
-  return `cd ${shellQuote(REMOTE_DIR)} && ${env.join(' && ')} && ${delay}node -e ${shellQuote(runner)} || true`;
+  return `cd ${shellQuote(REMOTE_DIR)} && ${env.join(' && ')} && node -e ${shellQuote(runner)} || true`;
 }
 
-export async function killPlaywrightVisualRun(sessionId: string, e2bKey?: string): Promise<void> {
-  const entry = visualRuns.get(sessionId);
-  if (!entry) return;
-  visualRuns.delete(sessionId);
-  await DesktopSandbox.kill(entry.id, e2bKey ? { apiKey: e2bKey } : undefined).catch(() => {});
+// Pull the recorded webm out of the sandbox and return it as a data URL. Playwright writes one
+// video per test under outputDir; we take the largest (the meaningful run, not an empty retry
+// stub) and skip embedding anything over the size ceiling. Best-effort: any failure just yields
+// no recording, never a failed run.
+async function extractVideoDataUrl(sandbox: Sandbox): Promise<string | undefined> {
+  try {
+    const listing = await sandbox.commands.run(
+      `find ${shellQuote(REMOTE_DIR)}/test-results -name '*.webm' -printf '%s\\t%p\\n' 2>/dev/null | sort -rn | head -1`,
+      { timeoutMs: 15_000 },
+    );
+    const line = String((listing as { stdout?: unknown }).stdout ?? '').trim();
+    if (!line) return undefined;
+    const [sizeStr, path] = line.split('\t');
+    const size = Number(sizeStr);
+    if (!path || !Number.isFinite(size) || size <= 0 || size > MAX_VIDEO_BYTES) return undefined;
+    const bytes = await sandbox.files.read(path, { format: 'bytes' });
+    const b64 = Buffer.from(bytes).toString('base64');
+    return `data:video/webm;base64,${b64}`;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function runPlaywrightTestInE2B(input: {
@@ -195,46 +206,11 @@ export async function runPlaywrightTestInE2B(input: {
   const timeoutSeconds = Math.min(input.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
   const opts = input.e2bKey ? { apiKey: input.e2bKey } : {};
   let sandbox: Sandbox | null = null;
-  let desktop: DesktopSandbox | null = null;
   try {
-    if (input.visual) {
-      if (input.sessionId) await killPlaywrightVisualRun(input.sessionId, input.e2bKey);
-      desktop = await DesktopSandbox.create(template, {
-        ...opts,
-        timeoutMs: VISUAL_TIMEOUT_MS,
-        resolution: [1280, 720],
-      });
-      await desktop.stream.start({ requireAuth: true });
-      const authKey = desktop.stream.getAuthKey();
-      const streamUrl = desktop.stream.getUrl({ authKey, autoConnect: true, resize: 'scale', viewOnly: false });
-      if (input.sessionId) visualRuns.set(input.sessionId, { id: desktop.sandboxId });
-      await desktop.commands.run(`mkdir -p ${shellQuote(REMOTE_DIR)}`, { timeoutMs: 10_000 });
-      await desktop.files.write(`${REMOTE_DIR}/test.spec.js`, withVisualHold(validated.code));
-      await desktop.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl, true));
-      await desktop.commands.run(playwrightCommand(baseUrl, { startupDelaySeconds: 3 }), { background: true, timeoutMs: 0 });
-      return {
-        success: true,
-        status: 'running',
-        passedTests: 0,
-        failedTests: 0,
-        skippedTests: 0,
-        totalTests: 0,
-        durationSeconds: Math.round(((Date.now() - started) / 1000) * 100) / 100,
-        testOutput: 'Visual Playwright run started in the streamed desktop sandbox.',
-        testErrors: '',
-        errorMessage: null,
-        framework: 'playwright',
-        template,
-        visual: true,
-        streamUrl,
-        sandboxId: desktop.sandboxId,
-      };
-    }
-
-    sandbox = await Sandbox.create(template, { ...opts, timeoutMs: (timeoutSeconds + 30) * 1000 });
+    sandbox = await Sandbox.create(template, { ...opts, timeoutMs: (timeoutSeconds + 60) * 1000 });
     await sandbox.commands.run(`mkdir -p ${shellQuote(REMOTE_DIR)}`, { timeoutMs: 10_000 });
     await sandbox.files.write(`${REMOTE_DIR}/test.spec.js`, validated.code);
-    await sandbox.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl));
+    await sandbox.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl, input.visual));
     const cmd = playwrightCommand(baseUrl);
     const result = await sandbox.commands.run(cmd, { timeoutMs: timeoutSeconds * 1000 });
     const stdout = String((result as { stdout?: unknown }).stdout ?? '');
@@ -249,6 +225,7 @@ export async function runPlaywrightTestInE2B(input: {
       : status === 'failed'
         ? (stderr.trim().split('\n').at(-1) || 'one or more tests failed')
         : null;
+    const videoUrl = input.visual ? await extractVideoDataUrl(sandbox) : undefined;
     return {
       success: status === 'passed',
       status,
@@ -262,12 +239,10 @@ export async function runPlaywrightTestInE2B(input: {
       errorMessage,
       framework: 'playwright',
       template,
+      visual: input.visual,
+      videoUrl,
     };
   } catch (err) {
-    if (desktop) {
-      if (input.sessionId) visualRuns.delete(input.sessionId);
-      await DesktopSandbox.kill(desktop.sandboxId, opts).catch(() => {});
-    }
     return resultError(err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000, template);
   } finally {
     if (sandbox) await Sandbox.kill(sandbox.sandboxId, opts).catch(() => {});
