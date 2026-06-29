@@ -38,6 +38,7 @@ const PROVIDERS = [
     models: [
       { id: 'gpt-oss-120b', name: 'gpt-oss-120b', meta: '~1000 tok/s' },
       { id: 'zai-glm-4.7', name: 'zai-glm-4.7', meta: 'reasoning' },
+      { id: 'gemma-4-31b', name: 'gemma-4-31b', meta: 'vision' },
     ],
   },
 ];
