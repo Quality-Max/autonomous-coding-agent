@@ -3,6 +3,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getOrCreateSandbox, killSandbox } from '@/lib/sandbox';
 import { killPreviewSandbox } from '@/lib/preview';
+import { killPlaywrightVisualRun } from '@/lib/playwrightRunner';
 import { resolveModel } from '@/lib/router';
 import { makeTools } from '@/lib/tools';
 import { loadMCPTools, isSafeSSEUrl, SAFE_AUTH } from '@/lib/mcp';
@@ -33,7 +34,7 @@ Typical workflow:
    - apply_edit_smart: when the edit is complex, spans multiple locations, or the exact context is uncertain (uses a fast AI model to merge the change)
    - write_file: only for new files or complete rewrites
 6. Run the project after changes to verify (tests, build, or dev server), then mark the relevant steps done.
-7. For a standalone generated Playwright spec, call run_playwright_test directly with the test source and baseUrl. Do NOT install Playwright or scaffold a temporary project just to validate a generated Playwright test; the dedicated E2B Playwright template already has the dependencies and browsers.
+7. For a standalone generated Playwright spec, call run_playwright_test directly with the test source and baseUrl. Do NOT install Playwright or scaffold a temporary project just to validate a generated Playwright test; the dedicated E2B Playwright template already has the dependencies and browsers. If the user asks to see, watch, replay, or visually run that Playwright test, call run_playwright_test again with visual=true and the same test source/baseUrl; do not tell them to run it locally.
 8. If the user wants a live preview, start the dev server in the background and call expose_port to get its public URL. That URL powers the preview pane. (The user can optionally open a live noVNC desktop view of it themselves from the UI — you do not start that.)
 9. Use any MCP tools available (e.g. linear_*) to fetch context from connected services when relevant.
 
@@ -89,18 +90,20 @@ export async function POST(req: NextRequest) {
   if (req.signal.aborted) {
     killSandbox(sessionId, keys?.e2b);
     void killPreviewSandbox(sessionId, keys?.e2b);
+    void killPlaywrightVisualRun(sessionId, keys?.e2b);
     await cleanupMCP();
     return NextResponse.json({ error: 'Request aborted' }, { status: 499 });
   }
   req.signal.addEventListener('abort', () => {
     killSandbox(sessionId, keys?.e2b);
     void killPreviewSandbox(sessionId, keys?.e2b);
+    void killPlaywrightVisualRun(sessionId, keys?.e2b);
     void cleanupMCP();
   });
 
   const model = resolveModel(provider, modelId, keys);
   // #3 — Sandbox tools spread last so they always win over same-named MCP tools.
-  const tools = { ...mcpTools, ...makeTools(sandbox, provider, keys) };
+  const tools = { ...mcpTools, ...makeTools(sandbox, provider, keys, sessionId) };
 
   // #2 — Wrap in try/catch so MCP clients are closed even if streamText throws synchronously.
   try {

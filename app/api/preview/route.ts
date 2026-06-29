@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { startLivePreview, killPreviewSandbox } from '@/lib/preview';
 import { killSandbox } from '@/lib/sandbox';
+import { killPlaywrightVisualRun } from '@/lib/playwrightRunner';
 
 // Creating a desktop sandbox + starting the stream takes a few seconds.
 export const maxDuration = 60;
@@ -47,6 +48,7 @@ export async function DELETE(req: NextRequest) {
   await Promise.allSettled([
     killSandbox(parsed.data.sessionId, parsed.data.e2bKey),
     killPreviewSandbox(parsed.data.sessionId, parsed.data.e2bKey),
+    killPlaywrightVisualRun(parsed.data.sessionId, parsed.data.e2bKey),
   ]);
   return NextResponse.json({ ok: true });
 }

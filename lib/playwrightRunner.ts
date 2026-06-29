@@ -1,14 +1,18 @@
 import { Sandbox } from 'e2b';
+import { Sandbox as DesktopSandbox } from '@e2b/desktop';
 import { assertSafeHttpUrl, shellQuote } from './preview';
 
 const DEFAULT_TEMPLATE = 'qualitymax-playwright';
 const REMOTE_DIR = '/home/user/qmax-playwright';
 const DEFAULT_TIMEOUT_SECONDS = 180;
 const MAX_TIMEOUT_SECONDS = 300;
+const VISUAL_TIMEOUT_MS = 10 * 60 * 1000;
+
+const visualRuns = new Map<string, { id: string }>();
 
 export interface PlaywrightRunResult {
   success: boolean;
-  status: 'passed' | 'failed' | 'error';
+  status: 'passed' | 'failed' | 'error' | 'running';
   passedTests: number;
   failedTests: number;
   skippedTests: number;
@@ -19,6 +23,9 @@ export interface PlaywrightRunResult {
   errorMessage: string | null;
   framework: 'playwright';
   template: string;
+  visual?: boolean;
+  streamUrl?: string;
+  sandboxId?: string;
 }
 
 function resultError(message: string, durationSeconds = 0, template = playwrightTemplate()): PlaywrightRunResult {
@@ -67,8 +74,15 @@ export function validatePlaywrightTest(raw: string): { ok: true; code: string } 
   return { ok: true, code };
 }
 
-function buildConfig(baseUrl: string | undefined): string {
+function buildConfig(baseUrl: string | undefined, visual = false): string {
   const baseUrlLine = baseUrl ? `\n    baseURL: ${JSON.stringify(baseUrl)},` : '';
+  const visualLines = visual
+    ? [
+        '    launchOptions: {',
+        '      slowMo: 650,',
+        '    },',
+      ]
+    : [];
   return [
     "const { defineConfig } = require('@playwright/test');",
     'module.exports = defineConfig({',
@@ -78,10 +92,11 @@ function buildConfig(baseUrl: string | undefined): string {
     '  workers: 1,',
     "  reporter: [['json', { outputFile: 'results.json' }], ['list']],",
     '  use: {',
-    '    headless: true,' + baseUrlLine,
+    `    headless: ${visual ? 'false' : 'true'},` + baseUrlLine,
     '    viewport: { width: 1280, height: 720 },',
     "    screenshot: 'only-on-failure',",
     '    actionTimeout: 15000,',
+    ...visualLines,
     '  },',
     '});',
     '',
@@ -128,7 +143,18 @@ export function parseCounts(raw: string): { passed: number; failed: number; skip
   return { passed, failed, skipped };
 }
 
-function playwrightCommand(baseUrl: string | undefined): string {
+function withVisualHold(code: string): string {
+  return [
+    code,
+    '',
+    "test.afterEach(async ({ page }) => {",
+    "  await page.waitForTimeout(Number(process.env.QMAX_VISUAL_HOLD_MS || '15000'));",
+    '});',
+    '',
+  ].join('\n');
+}
+
+function playwrightCommand(baseUrl: string | undefined, opts: { startupDelaySeconds?: number } = {}): string {
   const env = [
     `export PLAYWRIGHT_BROWSERS_PATH=${shellQuote(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
     'export NODE_PATH="$(npm root -g 2>/dev/null)${NODE_PATH:+:$NODE_PATH}"',
@@ -142,7 +168,15 @@ function playwrightCommand(baseUrl: string | undefined): string {
     'process.exit(result.status ?? 1);',
   ].join(' ');
 
-  return `cd ${shellQuote(REMOTE_DIR)} && ${env.join(' && ')} && node -e ${shellQuote(runner)} || true`;
+  const delay = opts.startupDelaySeconds ? `sleep ${opts.startupDelaySeconds} && ` : '';
+  return `cd ${shellQuote(REMOTE_DIR)} && ${env.join(' && ')} && ${delay}node -e ${shellQuote(runner)} || true`;
+}
+
+export async function killPlaywrightVisualRun(sessionId: string, e2bKey?: string): Promise<void> {
+  const entry = visualRuns.get(sessionId);
+  if (!entry) return;
+  visualRuns.delete(sessionId);
+  await DesktopSandbox.kill(entry.id, e2bKey ? { apiKey: e2bKey } : undefined).catch(() => {});
 }
 
 export async function runPlaywrightTestInE2B(input: {
@@ -150,6 +184,8 @@ export async function runPlaywrightTestInE2B(input: {
   baseUrl?: string;
   timeoutSeconds?: number;
   e2bKey?: string;
+  visual?: boolean;
+  sessionId?: string;
 }): Promise<PlaywrightRunResult> {
   const started = Date.now();
   const template = playwrightTemplate();
@@ -159,7 +195,42 @@ export async function runPlaywrightTestInE2B(input: {
   const timeoutSeconds = Math.min(input.timeoutSeconds || DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS);
   const opts = input.e2bKey ? { apiKey: input.e2bKey } : {};
   let sandbox: Sandbox | null = null;
+  let desktop: DesktopSandbox | null = null;
   try {
+    if (input.visual) {
+      if (input.sessionId) await killPlaywrightVisualRun(input.sessionId, input.e2bKey);
+      desktop = await DesktopSandbox.create(template, {
+        ...opts,
+        timeoutMs: VISUAL_TIMEOUT_MS,
+        resolution: [1280, 720],
+      });
+      await desktop.stream.start({ requireAuth: true });
+      const authKey = desktop.stream.getAuthKey();
+      const streamUrl = desktop.stream.getUrl({ authKey, autoConnect: true, resize: 'scale', viewOnly: false });
+      if (input.sessionId) visualRuns.set(input.sessionId, { id: desktop.sandboxId });
+      await desktop.commands.run(`mkdir -p ${shellQuote(REMOTE_DIR)}`, { timeoutMs: 10_000 });
+      await desktop.files.write(`${REMOTE_DIR}/test.spec.js`, withVisualHold(validated.code));
+      await desktop.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl, true));
+      await desktop.commands.run(playwrightCommand(baseUrl, { startupDelaySeconds: 3 }), { background: true, timeoutMs: 0 });
+      return {
+        success: true,
+        status: 'running',
+        passedTests: 0,
+        failedTests: 0,
+        skippedTests: 0,
+        totalTests: 0,
+        durationSeconds: Math.round(((Date.now() - started) / 1000) * 100) / 100,
+        testOutput: 'Visual Playwright run started in the streamed desktop sandbox.',
+        testErrors: '',
+        errorMessage: null,
+        framework: 'playwright',
+        template,
+        visual: true,
+        streamUrl,
+        sandboxId: desktop.sandboxId,
+      };
+    }
+
     sandbox = await Sandbox.create(template, { ...opts, timeoutMs: (timeoutSeconds + 30) * 1000 });
     await sandbox.commands.run(`mkdir -p ${shellQuote(REMOTE_DIR)}`, { timeoutMs: 10_000 });
     await sandbox.files.write(`${REMOTE_DIR}/test.spec.js`, validated.code);
@@ -193,6 +264,10 @@ export async function runPlaywrightTestInE2B(input: {
       template,
     };
   } catch (err) {
+    if (desktop) {
+      if (input.sessionId) visualRuns.delete(input.sessionId);
+      await DesktopSandbox.kill(desktop.sandboxId, opts).catch(() => {});
+    }
     return resultError(err instanceof Error ? err.message : String(err), (Date.now() - started) / 1000, template);
   } finally {
     if (sandbox) await Sandbox.kill(sandbox.sandboxId, opts).catch(() => {});
