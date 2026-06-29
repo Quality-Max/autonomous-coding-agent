@@ -43,6 +43,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
+function normalizeAppUrl(raw: string): string {
+  const value = raw.trim();
+  if (!value) return '';
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
 function Metric({ value, label, fast }: { value: string | number; label: string; fast?: boolean }) {
   return (
     <div className="rec-metric">
@@ -89,6 +95,7 @@ function ResultCard({ result, kind, onSend }: { result: VisionResult; kind: 'pri
 export default function RecognizePage() {
   const router = useRouter();
   const [dataUri, setDataUri] = useState<string | null>(null);
+  const [dataUriFromUrl, setDataUriFromUrl] = useState(false);
   const [appUrl, setAppUrl] = useState('');
   const [model, setModel] = useState('gemma-4-31b');
   const [baselineModel, setBaselineModel] = useState('');
@@ -97,7 +104,7 @@ export default function RecognizePage() {
   const [over, setOver] = useState(false);
   const [resp, setResp] = useState<VisionResponse | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const cerebrasKeyRef = useRef<string | undefined>(undefined);
+  const apiKeysRef = useRef<ApiKeys>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // BYOK: read the Cerebras key the visitor entered on the agent page (same localStorage
@@ -105,7 +112,7 @@ export default function RecognizePage() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('apiKeys') ?? '{}') as ApiKeys;
-      cerebrasKeyRef.current = saved?.cerebras || undefined;
+      apiKeysRef.current = saved || {};
     } catch {}
   }, []);
 
@@ -114,7 +121,10 @@ export default function RecognizePage() {
     async function onPaste(e: ClipboardEvent) {
       const file = Array.from(e.clipboardData?.items ?? [])
         .find(i => i.type.startsWith('image/'))?.getAsFile();
-      if (file) setDataUri(await readFileAsDataUrl(file));
+      if (file) {
+        setDataUri(await readFileAsDataUrl(file));
+        setDataUriFromUrl(false);
+      }
     }
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
@@ -123,34 +133,40 @@ export default function RecognizePage() {
   async function pickFile(file: File | undefined) {
     if (!file || !file.type.startsWith('image/')) return;
     setDataUri(await readFileAsDataUrl(file));
+    setDataUriFromUrl(false);
   }
 
   async function generate() {
-    if (!dataUri || busy) return;
+    const url = normalizeAppUrl(appUrl);
+    const imageBase64 = dataUri && !dataUriFromUrl ? dataUri : undefined;
+    if ((!imageBase64 && !url) || busy) return;
     setBusy(true);
     setErr(null);
     setResp(null);
-    const url = appUrl.trim();
     const prompt = [
       instructions.trim() || '',
-      url ? `The app under test is available at: ${url}` : '',
     ].filter(Boolean).join('\n\n') || undefined;
     try {
       const res = await fetch('/api/vision', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          imageBase64: dataUri,
+          imageBase64,
+          url: url || undefined,
           model,
           baselineModel: baselineModel || undefined,
           instructions: prompt,
-          keys: cerebrasKeyRef.current ? { cerebras: cerebrasKeyRef.current } : undefined,
+          keys: Object.keys(apiKeysRef.current).length ? apiKeysRef.current : undefined,
         }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setErr(data?.error || `Error ${res.status}`);
         return;
+      }
+      if (data?.screenshot) {
+        setDataUri(data.screenshot);
+        setDataUriFromUrl(data.imageSource === 'url');
       }
       setResp(data as VisionResponse);
     } catch (e) {
@@ -165,7 +181,7 @@ export default function RecognizePage() {
   // reasoning → agent in one flow.
   function sendToAgent(result: VisionResult) {
     if (!result.testCode) return;
-    const url = appUrl.trim();
+    const url = normalizeAppUrl(appUrl);
     const task =
       `A multimodal model (${result.model}) looked at ${url ? `the app at ${url}` : 'a screenshot of the app under test'} ` +
       `and generated this Playwright test:\n\n\`\`\`\n${result.testCode}\n\`\`\`\n\n` +
@@ -238,7 +254,7 @@ export default function RecognizePage() {
               </div>
 
               <div className="rec-field">
-                <label>App URL (optional)</label>
+                <label>App URL</label>
                 <input
                   className="rec-input"
                   type="url"
@@ -276,7 +292,7 @@ export default function RecognizePage() {
                 />
               </div>
 
-              <button className="btn" style={{ width: '100%' }} onClick={generate} disabled={!dataUri || busy}>
+              <button className="btn" style={{ width: '100%' }} onClick={generate} disabled={(!dataUri && !appUrl.trim()) || busy}>
                 {busy ? 'Running on Cerebras…' : <><Icon name="box" size={14} />Generate test</>}
               </button>
             </div>
@@ -285,7 +301,7 @@ export default function RecognizePage() {
               {err && <div className="rec-empty rec-warn" style={{ marginBottom: 16 }}>{err}</div>}
               {!resp && !err && (
                 <div className="rec-empty">
-                  Upload a screenshot and run to see the generated test, speed, and cost.
+                  Enter an app URL or upload a screenshot to see the generated test, speed, and cost.
                 </div>
               )}
               {resp && (

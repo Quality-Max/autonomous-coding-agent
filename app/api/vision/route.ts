@@ -1,6 +1,7 @@
 import { generateText } from 'ai';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { assertSafeHttpUrl, shellQuote } from '@/lib/preview';
 import { resolveModel } from '@/lib/router';
 import {
   VISION_SYSTEM_PROMPT,
@@ -18,16 +19,25 @@ export const maxDuration = 60;
 // 8 MB cap on the decoded image — matches typical full-page screenshots while keeping
 // the request body bounded. base64 inflates ~33%, hence the ~11 MB string cap.
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const DESKTOP_TIMEOUT_MS = 60_000;
+const CHROME = 'google-chrome-stable';
 
 const VisionRequestSchema = z.object({
-  // Raw base64 OR a `data:image/...;base64,...` URI. Upload/paste only — no URL
-  // fetching, so there is no SSRF surface here.
-  imageBase64: z.string().min(16).max(12_000_000),
+  // Raw base64 OR a `data:image/...;base64,...` URI. If absent, `url` is captured in
+  // an isolated E2B desktop sandbox and that screenshot is sent to the model.
+  imageBase64: z.string().min(16).max(12_000_000).optional(),
+  url: z.string().url().optional(),
   instructions: z.string().max(4000).optional(),
   model: z.string().max(128).default('gemma-4-31b'),
   baselineModel: z.string().max(128).optional(),
   maxTokens: z.number().int().min(64).max(4096).default(1200),
-  keys: z.object({ cerebras: z.string().max(512).optional() }).optional(),
+  keys: z.object({
+    cerebras: z.string().max(512).optional(),
+    e2b: z.string().max(512).optional(),
+  }).optional(),
+}).refine(v => Boolean(v.imageBase64 || v.url), {
+  message: 'Provide either imageBase64 or url.',
+  path: ['imageBase64'],
 });
 
 type VisionResult = {
@@ -103,12 +113,32 @@ async function runOne(
   }
 }
 
+async function captureUrlScreenshot(url: string, e2bKey: string | undefined): Promise<{ dataUri: string; mediaType: string }> {
+  const safeUrl = assertSafeHttpUrl(url);
+  const opts = e2bKey ? { apiKey: e2bKey } : {};
+  const { Sandbox: DesktopSandbox } = await import('@e2b/desktop');
+  const desktop = await DesktopSandbox.create({ ...opts, timeoutMs: DESKTOP_TIMEOUT_MS });
+  try {
+    const cmd = [
+      `${CHROME} --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=1440,900 --screenshot=/tmp/recognize.png ${shellQuote(safeUrl)}`,
+      'base64 -w0 /tmp/recognize.png',
+    ].join(' && ');
+    const result = await desktop.commands.run(cmd, { timeoutMs: 45_000 });
+    const stdout = String((result as { stdout?: unknown }).stdout ?? '').trim();
+    if (!stdout) throw new Error('URL screenshot produced no image output');
+    if (stdout.length * 0.75 > MAX_IMAGE_BYTES) throw new Error('Captured screenshot exceeds 8 MB limit.');
+    return { dataUri: `data:image/png;base64,${stdout}`, mediaType: 'image/png' };
+  } finally {
+    await DesktopSandbox.kill(desktop.sandboxId, opts).catch(() => {});
+  }
+}
+
 export async function POST(req: NextRequest) {
   const parsed = VisionRequestSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 });
   }
-  const { imageBase64, instructions, model, baselineModel, maxTokens, keys } = parsed.data;
+  const { imageBase64, url, instructions, model, baselineModel, maxTokens, keys } = parsed.data;
 
   if (!keys?.cerebras && !process.env.CEREBRAS_API_KEY) {
     return NextResponse.json(
@@ -117,18 +147,34 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { base64, mediaType } = decodeImageInput(imageBase64);
-  if (base64.length * 0.75 > MAX_IMAGE_BYTES) {
-    return NextResponse.json({ error: 'Image exceeds 8 MB limit.' }, { status: 400 });
+  let dataUri: string;
+  let mediaType: string;
+  try {
+    if (imageBase64) {
+      const decoded = decodeImageInput(imageBase64);
+      if (decoded.base64.length * 0.75 > MAX_IMAGE_BYTES) {
+        return NextResponse.json({ error: 'Image exceeds 8 MB limit.' }, { status: 400 });
+      }
+      if (!/^image\//.test(decoded.mediaType)) {
+        return NextResponse.json({ error: 'Uploaded data is not an image.' }, { status: 400 });
+      }
+      dataUri = `data:${decoded.mediaType};base64,${decoded.base64}`;
+      mediaType = decoded.mediaType;
+    } else {
+      const captured = await captureUrlScreenshot(url!, keys?.e2b);
+      dataUri = captured.dataUri;
+      mediaType = captured.mediaType;
+    }
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 502 });
   }
-  if (!/^image\//.test(mediaType)) {
-    return NextResponse.json({ error: 'Uploaded data is not an image.' }, { status: 400 });
-  }
-  const dataUri = `data:${mediaType};base64,${base64}`;
-  const userPrompt = instructions?.trim() || VISION_USER_PROMPT;
+  const userPrompt = [
+    instructions?.trim() || VISION_USER_PROMPT,
+    url ? `The app under test is available at: ${url}` : '',
+  ].filter(Boolean).join('\n\n');
 
   const primary = await runOne(model, dataUri, userPrompt, maxTokens, keys);
   const baseline = baselineModel ? await runOne(baselineModel, dataUri, userPrompt, maxTokens, keys) : null;
 
-  return NextResponse.json({ screenshot: dataUri, mediaType, primary, baseline });
+  return NextResponse.json({ screenshot: dataUri, mediaType, imageSource: imageBase64 ? 'upload' : 'url', primary, baseline });
 }
