@@ -39,7 +39,7 @@ function resultError(message: string, durationSeconds = 0, template = playwright
 }
 
 function playwrightTemplate(): string {
-  return process.env.E2B_PLAYWRIGHT_TEMPLATE || DEFAULT_TEMPLATE;
+  return process.env.E2B_PLAYWRIGHT_TEMPLATE || process.env.E2B_TEMPLATE || DEFAULT_TEMPLATE;
 }
 
 function stripTypescriptTypes(code: string): string {
@@ -128,6 +128,23 @@ export function parseCounts(raw: string): { passed: number; failed: number; skip
   return { passed, failed, skipped };
 }
 
+function playwrightCommand(baseUrl: string | undefined): string {
+  const env = [
+    `export PLAYWRIGHT_BROWSERS_PATH=${shellQuote(process.env.PLAYWRIGHT_BROWSERS_PATH || '/ms-playwright')}`,
+    'export NODE_PATH="$(npm root -g 2>/dev/null)${NODE_PATH:+:$NODE_PATH}"',
+  ];
+  if (baseUrl) env.push(`export BASE_URL=${shellQuote(baseUrl)}`);
+
+  const runner = [
+    "const { spawnSync } = require('node:child_process');",
+    "const cli = require.resolve('@playwright/test/cli');",
+    "const result = spawnSync(process.execPath, [cli, 'test', 'test.spec.js'], { stdio: 'inherit' });",
+    'process.exit(result.status ?? 1);',
+  ].join(' ');
+
+  return `cd ${shellQuote(REMOTE_DIR)} && ${env.join(' && ')} && node -e ${shellQuote(runner)} || true`;
+}
+
 export async function runPlaywrightTestInE2B(input: {
   testCode: string;
   baseUrl?: string;
@@ -147,8 +164,7 @@ export async function runPlaywrightTestInE2B(input: {
     await sandbox.commands.run(`mkdir -p ${shellQuote(REMOTE_DIR)}`, { timeoutMs: 10_000 });
     await sandbox.files.write(`${REMOTE_DIR}/test.spec.js`, validated.code);
     await sandbox.files.write(`${REMOTE_DIR}/playwright.config.js`, buildConfig(baseUrl));
-    const env = baseUrl ? `BASE_URL=${shellQuote(baseUrl)} ` : '';
-    const cmd = `cd ${shellQuote(REMOTE_DIR)} && ${env}npx playwright test test.spec.js || true`;
+    const cmd = playwrightCommand(baseUrl);
     const result = await sandbox.commands.run(cmd, { timeoutMs: timeoutSeconds * 1000 });
     const stdout = String((result as { stdout?: unknown }).stdout ?? '');
     const stderr = String((result as { stderr?: unknown }).stderr ?? '');
