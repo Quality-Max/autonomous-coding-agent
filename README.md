@@ -1,5 +1,9 @@
 # Autonomous Coding Agent
 
+[QualityMax ecosystem](https://github.com/Quality-Max/qualitymax) · [Testing documentation](https://docs.qualitymax.io/)
+
+This is a separate sandbox coding-agent example. Its demo and provider prerequisites are documented below; it is not the hosted QualityMax platform source. Sandbox and model usage may incur provider charges.
+
 An autonomous coding agent that clones a repository, plans a task, and implements it inside an isolated cloud sandbox — with a streaming Next.js frontend that shows every command, file edit, and thought in real time.
 
 Think Codex, Jules, or Devin: give it a repo URL and a task description, watch it work.
